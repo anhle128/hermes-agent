@@ -468,6 +468,65 @@ class TestRequestMessageCoercion:
         assert mod._coerce_request_messages(user_message="u") == [{"role": "user", "content": "u"}]
 
 
+class TestTraceIdentity:
+    def test_successive_turns_in_same_session_get_distinct_trace_ids(self, monkeypatch):
+        sys.modules.pop("plugins.observability.langfuse", None)
+        mod = importlib.import_module("plugins.observability.langfuse")
+
+        class _Span:
+            def set_trace_io(self, **kwargs):
+                pass
+
+        class _Ctx:
+            def __enter__(self):
+                return _Span()
+
+        class _Client:
+            def __init__(self):
+                self.seeds = []
+
+            def create_trace_id(self, *, seed):
+                self.seeds.append(seed)
+                return f"trace-{len(self.seeds)}"
+
+            def start_as_current_observation(self, **kwargs):
+                return _Ctx()
+
+        monkeypatch.setattr(mod, "propagate_attributes", None, raising=False)
+        client = _Client()
+        task_key = mod._trace_key("", "session-1")
+
+        first = mod._start_root_trace(
+            task_key,
+            task_id="",
+            session_id="session-1",
+            platform="cli",
+            provider="openai",
+            model="gpt",
+            api_mode="chat_completions",
+            messages=[{"role": "user", "content": "first"}],
+            client=client,
+        )
+        second = mod._start_root_trace(
+            task_key,
+            task_id="",
+            session_id="session-1",
+            platform="cli",
+            provider="openai",
+            model="gpt",
+            api_mode="chat_completions",
+            messages=[{"role": "user", "content": "second"}],
+            client=client,
+        )
+
+        assert first.trace_id == "trace-1"
+        assert second.trace_id == "trace-2"
+        assert client.seeds == [
+            "session-1::session:session-1::1",
+            "session-1::session:session-1::2",
+        ]
+
+
 class TestToolCallOutputBackfill:
     def test_post_tool_call_backfills_matching_turn_tool_call_output(self, monkeypatch):
         sys.modules.pop("plugins.observability.langfuse", None)

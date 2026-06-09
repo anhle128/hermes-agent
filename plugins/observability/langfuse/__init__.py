@@ -54,6 +54,7 @@ class TraceState:
 
 _STATE_LOCK = threading.Lock()
 _TRACE_STATE: Dict[str, TraceState] = {}
+_TRACE_SEQUENCE: Dict[str, int] = {}
 _LANGFUSE_CLIENT = None
 _READ_FILE_LINE_RE = re.compile(r"^\s*(\d+)\|(.*)$")
 _READ_FILE_HEAD_LINES = 25
@@ -225,6 +226,12 @@ def _trace_key(task_id: str, session_id: str) -> str:
     if session_id:
         return f"session:{session_id}"
     return f"thread:{threading.get_ident()}"
+
+
+def _next_trace_sequence(task_key: str) -> int:
+    next_value = _TRACE_SEQUENCE.get(task_key, 0) + 1
+    _TRACE_SEQUENCE[task_key] = next_value
+    return next_value
 
 
 def _truncate_text(value: str, max_chars: int) -> str:
@@ -541,7 +548,8 @@ def _usage_and_cost(response: Any, *, provider: str, api_mode: str, model: str, 
 
 def _start_root_trace(task_key: str, *, task_id: str, session_id: str, platform: str, provider: str, model: str,
                       api_mode: str, messages: Any, client: Langfuse) -> TraceState:
-    trace_id = client.create_trace_id(seed=f"{session_id or 'sessionless'}::{task_id or task_key}")
+    trace_sequence = _next_trace_sequence(task_key)
+    trace_id = client.create_trace_id(seed=f"{session_id or 'sessionless'}::{task_id or task_key}::{trace_sequence}")
     trace_input = _extract_last_user_message(messages)
     metadata = {
         "source": "hermes",
@@ -550,6 +558,7 @@ def _start_root_trace(task_key: str, *, task_id: str, session_id: str, platform:
         "provider": provider,
         "model": model,
         "api_mode": api_mode,
+        "trace_sequence": trace_sequence,
     }
 
     # session_id must be passed in trace_context for Langfuse session grouping.
