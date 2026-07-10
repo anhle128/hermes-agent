@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.hermes.local/workflow-commander/phase-task-identity.schema.json",
+  "title": "Phase Task Identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "projectWorkIdentityKey",
+    "phaseKind",
+    "identityKey"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "workflow.phase-task-identity/1"
+    },
+    "projectWorkIdentityKey": {
+      "type": "string",
+      "pattern": "^pwi:[a-zA-Z0-9._:-]+$"
+    },
+    "phaseKind": {
+      "const": "story_implementation"
+    },
+    "identityKey": {
+      "type": "string",
+      "pattern": "^phase:pwi:[a-zA-Z0-9._:-]+:story_implementation$"
+    },
+    "gateKind": {
+      "enum": [
+        "none",
+        "done_verification"
+      ]
+    }
+  }
+}

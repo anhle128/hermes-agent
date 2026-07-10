@@ -2,7 +2,8 @@
 title: hermes-agent Epics Handoff - Hermes Agent Workflow Commander
 status: handoff
 created: '2026-07-02'
-updated: '2026-07-02'
+updated: '2026-07-09'
+localContractPackage: _bmad-output/planning-artifacts/contracts/workflow-commander/
 storyOwnershipNote: >
   Story numbering is kept identical to the parent workspace's epics.md (Epics 2-5)
   so cross-references between hermes-agent, Archon, and the parent stay unambiguous.
@@ -17,7 +18,46 @@ storyOwnershipNote: >
 
 This file contains the hermes-agent-owned subset of the parent epics (22 of 35 stories, spanning parent Epics 2-5). It excludes all Archon-owned producer work (see `Archon/_bmad-output/planning-artifacts/epics.md`) except where dependency notes are required for integration.
 
-**Blocked dependency (all stories below):** every story references shared contract fixtures from parent Stories 1.3a/1.3b/1.3c. As of this handoff (2026-07-02), those fixtures do not exist yet — only a README placeholder exists at `_bmad-output/planning-artifacts/contracts/workflow-commander/` in the parent workspace. No story below should move to implementation-ready until those fixtures exist here or are regenerated into this local handoff.
+**Local contract package:** the shared Workflow Commander contract package now exists in `_bmad-output/planning-artifacts/contracts/workflow-commander/` as of 2026-07-09.
+This resolves the local planning-artifact fixture presence blocker identified by the implementation-readiness report.
+No story should move to implementation-ready until its implementation tests load the exact schemas and examples it consumes from that package and, for provider-facing stories, prove compatibility with the Archon producer-side story listed in the dependency note.
+
+## NFR Coverage Map
+
+The PRD defines NFR-1 through NFR-17.
+This map makes the traceability explicit for implementation and QA planning.
+
+| NFR | Primary Story Coverage | Contract Or Test Evidence |
+| --- | --- | --- |
+| NFR-1 workflow events are acceleration, not sole truth | Stories 3.8, 5.2b | Delivery-status fixtures and reconciliation fixtures must show event loss does not complete work. |
+| NFR-2 reconcile after loss, duplicates, downtime, command failure, or manual PR merge | Stories 5.2a, 5.2b, 5.2c | Materialization, delivery, provider-state, and PR/done-verification drift fixtures. |
+| NFR-3 materialization is idempotent | Stories 2.5, 2.6, 5.2a | `materialization/unchanged-story.json`, `changed-story.json`, and `duplicate-phase-task-prevention.json`. |
+| NFR-4 gate decisions are replay-safe and auditable | Story 4.3 | Gate decision tests must persist actor, timestamp, evidence references, decision, reason, and command result separation. |
+| NFR-5 reject events failing signature, schema, replay, binding, provider, or authorization checks | Stories 3.6a, 3.6b | Callback rejection fixtures under `examples/callback-rejections/`. |
+| NFR-6 scope event secrets to the correct profile | Story 3.6a | `wrong-profile-secret.json` and profile-routed webhook tests. |
+| NFR-7 prevent workflow actions outside Bound Project Cwd | Story 2.3 | Adapter tests must assert BMAD and provider actions receive the Project Binding cwd. |
+| NFR-8 redact secrets in logs, diagnostics, command output, events, and timeline views | Stories 3.6a, 4.3, 5.1, 5.3 | Rejection, gate prompt, timeline, and diagnostic tests must assert redacted evidence. |
+| NFR-9 persist commands, events, reconciliation actions, gate decisions, and state transitions | Stories 2.3, 3.4a, 3.4b, 3.4c, 3.6b, 4.3, 5.2a, 5.2b, 5.2c | Persistence tests for audit records, command envelopes, receipts, decisions, and reconciliation results. |
+| NFR-10 Story Timeline explains why state changed | Story 5.1 | Timeline fixture shows source-labeled BMAD, Hermes, provider, GitHub, workflow event, reconciliation, and human decision entries. |
+| NFR-11 state changes carry provenance by source | Stories 5.1, 5.2a, 5.2b, 5.2c, 5.3 | Timeline, reconciliation, and diagnostic fixtures include source, affected reference, and resulting state. |
+| NFR-12 next actions use user-facing language | Stories 4.3, 5.1, 5.3 | Gate, timeline, and diagnostic rendering tests avoid backend-only state names as the user-facing next action. |
+| NFR-13 distinguish Done Verification Gate approval from GitHub PR merge | Stories 4.2, 5.1, 5.2c | Completion fixtures keep PR state and done-verification state separate. |
+| NFR-14 surface blockers with recovery options, not raw stack traces | Stories 2.1, 2.4, 3.4a, 3.4b, 3.4c, 5.3 | Diagnostic fixtures include category, severity, owner, recovery path, and redacted evidence. |
+| NFR-15 preserve bounded ownership between Hermes, BMAD, providers, and GitHub | Stories 2.5, 3.2, 3.8, 5.2a, 5.2b, 5.2c | Tests must keep BMAD artifacts, provider state, GitHub PR state, and Hermes project work as separate sources. |
+| NFR-16 provider integration surfaces stay generic | Stories 3.2, 3.4a, 3.4b, 3.4c, 3.6a, 3.6b, 3.6c, 3.8 | Schemas use generic `provider` and `name` vocabulary with provider-specific examples under `providers/archon/`. |
+| NFR-17 cross-project handoffs are complete enough for isolated agents | All provider-facing stories, especially 3.2 through 3.8 | The local contract package and Archon dependency notes are required inputs before implementation-ready status. |
+
+## Guarded Story Slicing Disposition
+
+These stories are umbrella-sized and must not be pulled directly into sprint execution without one-cycle evidence.
+If the assigned implementer cannot complete code, tests, lint, and validation in one implementation cycle, split them as follows before sprint commitment.
+
+| Guarded Story | Pre-Sprint Disposition |
+| --- | --- |
+| Story 2.1 | Split into persistence and uniqueness migration, validation and conflict diagnostics, and display/update/disable audit slices. |
+| Story 3.6c | Split into workflow-reference mapping, project-work and gate mutation mapping, and unresolved event mapping diagnostics. |
+| Story 5.2b | Split into provider workflow source-state reconciliation, workflow event and delivery-health reconciliation, and deterministic repair versus unresolved-conflict projection. |
+| Story 5.3 | Split into diagnostic vocabulary and redaction, recovery-option projection, and resolution history with Story Timeline linking. |
 
 ## Epic 2: Project-Bound Planning And Work Backlog
 
@@ -247,7 +287,7 @@ So that BMAD planning output becomes an operational backlog without making `spri
 
 **Implementation Scope:** `sprint-status.yaml` reader, Project Work Item identity, and Project Work Item upsert behavior.
 
-Depends on: shared Project Work Item identity fixture (parent Story 1.3c — blocked, see above), Story 2.1, Story 2.4 (this file).
+Depends on: shared Project Work Item identity fixture in `_bmad-output/planning-artifacts/contracts/workflow-commander/`, Story 2.1, Story 2.4 (this file).
 Contract needed: Project Work Item identity fixture, supported `sprint-status.yaml` examples, Project Work Item persistence shape, and idempotent upsert rule.
 Blocking behavior: Cannot be marked complete until unchanged, changed, malformed, missing, and duplicate prevention fixtures pass against the Hermes implementation.
 Integration validation: Re-running materialization updates existing Project Work Items rather than creating duplicates and records provenance for each source artifact.
@@ -297,7 +337,7 @@ So that I can choose and track story work from Hermes without confusing BMAD sto
 
 **Implementation Scope:** Phase-task persistence, project-work facade metadata, and canonical Kanban status mapping.
 
-Depends on: shared Project Work Item identity fixture (parent Story 1.3c — blocked, see above), Story 2.1, Story 2.5 (this file).
+Depends on: shared Project Work Item identity fixture in `_bmad-output/planning-artifacts/contracts/workflow-commander/`, Story 2.1, Story 2.5 (this file).
 Contract needed: Project Work Item identity, Phase Task identity, phase task link, reserved gate metadata, and canonical Kanban status vocabulary.
 Blocking behavior: Cannot be marked complete until repeated materialization proves a stable, non-duplicating Phase Task identity per Project Work Item.
 Integration validation: Idempotency tests prove duplicate materialization does not duplicate the phase task or reserved gate metadata.
@@ -497,7 +537,7 @@ So that events cannot cross project, binding, provider, or profile boundaries.
 
 **Implementation Scope:** Hermes-owned workflow event ingress validation before idempotency receipts or project-work mutation.
 
-Depends on: shared workflow event envelope/rejection fixtures (parent Story 1.3b — blocked, see above), Story 2.1, Story 3.2 (this file).
+Depends on: shared workflow event envelope and rejection fixtures in `_bmad-output/planning-artifacts/contracts/workflow-commander/`, Story 2.1, Story 3.2 (this file).
 **Depends on Archon:** Story 3.5 (Archon must produce a valid signed event fixture to validate against).
 Contract needed: Workflow event envelope schema, workflow event rejection examples, Project Binding identity, profile route, profile-scoped secret, provider identity, and rejection diagnostic shape.
 Blocking behavior: Cannot be marked complete until invalid events are rejected before mutation and without exposing secrets.
@@ -532,7 +572,7 @@ So that redelivery does not create duplicate workflow references, gates, comment
 
 **Implementation Scope:** Workflow event receipt persistence, duplicate classification, and duplicate-safe diagnostics.
 
-Depends on: shared workflow event fixtures (parent Story 1.3b — blocked, see above), Story 2.1, Story 3.6a (this file).
+Depends on: shared workflow event fixtures in `_bmad-output/planning-artifacts/contracts/workflow-commander/`, Story 2.1, Story 3.6a (this file).
 Contract needed: Workflow event idempotency receipt shape, duplicate event id rule, duplicate idempotency key rule, duplicate-safe marker, and diagnostic shape.
 Blocking behavior: Cannot be marked complete until duplicate events are classified without applying duplicate mutations.
 Integration validation: Duplicate workflow event fixtures are accepted as duplicate-safe receipts without duplicating workflow references, gates, comments, or transitions.
@@ -568,7 +608,7 @@ So that workflow completion, failure, approval request, and artifact events upda
 
 Sprint-slicing guard: before sprint commitment, split this story by persistence, adapter, projection, or UI display work if it cannot be implemented, tested, linted, and validated in one implementation cycle.
 
-Depends on: shared Project Work Item / Phase Task identity fixture (parent Story 1.3c — blocked, see above), Story 2.1, Story 2.6, Story 3.2, Story 3.6a, Story 3.6b (this file).
+Depends on: shared Project Work Item and Phase Task identity fixtures in `_bmad-output/planning-artifacts/contracts/workflow-commander/`, Story 2.1, Story 2.6, Story 3.2, Story 3.6a, Story 3.6b (this file).
 **Depends on Archon:** Story 3.5.
 Contract needed: Workflow event envelope schema, Project Work Item identity, Phase Task identity, workflow reference, event-to-mutation map, and deliver-only notification marker.
 Blocking behavior: Cannot be completed until accepted events map to existing Project Work Items or phase tasks without creating unintended work.

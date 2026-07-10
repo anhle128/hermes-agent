@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.hermes.local/workflow-commander/workflow-command-envelope.schema.json",
+  "title": "Workflow Command Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "success",
+    "provider",
+    "command",
+    "correlationId",
+    "issuedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "workflow.command/1"
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command": {
+      "enum": [
+        "binding.create",
+        "binding.status",
+        "workflow.start",
+        "workflow.status",
+        "workflow.approve",
+        "workflow.reject",
+        "workflow.resume",
+        "workflow.retry",
+        "workflow.cancel"
+      ]
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issuedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "bindingRef": {
+      "$ref": "#/$defs/bindingRef"
+    },
+    "workflowRunRef": {
+      "$ref": "#/$defs/workflowRunRef"
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "$ref": "#/$defs/error"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "success": {
+          "const": true
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "not": {
+        "required": [
+          "error"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "success": {
+          "const": false
+        }
+      },
+      "required": [
+        "error"
+      ]
+    }
+  ],
+  "$defs": {
+    "bindingRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "name"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectRef": {
+          "type": "string"
+        }
+      }
+    },
+    "workflowRunRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "runId"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflowName": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "diagnosticCategory",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diagnosticCategory": {
+          "enum": [
+            "configuration",
+            "user_decision",
+            "external_delay",
+            "implementation_defect",
+            "provider_contract",
+            "security_rejection",
+            "timeout",
+            "unexpected_state"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

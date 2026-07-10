@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.hermes.local/workflow-commander/gate-decision-record.schema.json",
+  "title": "Gate Decision Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "decisionId",
+    "actor",
+    "decidedAt",
+    "gateKind",
+    "decision",
+    "phaseTaskIdentityKey",
+    "evidenceRefs",
+    "resultingPhaseState"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "workflow.gate-decision/1"
+    },
+    "decisionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decidedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "gateKind": {
+      "const": "done_verification"
+    },
+    "decision": {
+      "enum": [
+        "approved",
+        "rejected"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "selectedRecoveryAction": {
+      "enum": [
+        "none",
+        "rerun_fix_loop",
+        "resume_workflow",
+        "retry_provider_command",
+        "manual_recovery"
+      ]
+    },
+    "phaseTaskIdentityKey": {
+      "type": "string",
+      "pattern": "^phase:pwi:[a-zA-Z0-9._:-]+:story_implementation$"
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "providerCommandCorrelationId": {
+      "type": "string"
+    },
+    "resultingPhaseState": {
+      "enum": [
+        "blocked",
+        "running",
+        "done"
+      ]
+    }
+  }
+}

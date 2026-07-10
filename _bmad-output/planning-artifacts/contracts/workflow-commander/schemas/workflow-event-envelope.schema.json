@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.hermes.local/workflow-commander/workflow-event-envelope.schema.json",
+  "title": "Workflow Event Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "occurredAt",
+    "provider",
+    "bindingRef",
+    "workflowRunRef",
+    "project",
+    "idempotencyKey",
+    "signature",
+    "payload"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "workflow.event/1"
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eventType": {
+      "enum": [
+        "workflow.completed",
+        "workflow.failed",
+        "approval.requested",
+        "delivery.failed",
+        "artifact.recorded"
+      ]
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bindingRef": {
+      "$ref": "#/$defs/bindingRef"
+    },
+    "workflowRunRef": {
+      "$ref": "#/$defs/workflowRunRef"
+    },
+    "project": {
+      "$ref": "#/$defs/projectRef"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "signature": {
+      "$ref": "#/$defs/signature"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "bindingRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "name"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "workflowRunRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "runId",
+        "workflowName"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflowName": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "projectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "boundProjectCwd",
+        "codebaseRef"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "boundProjectCwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "codebaseRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectBindingId": {
+          "type": "string"
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "keyId",
+        "signedAt",
+        "headerName",
+        "digest"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "hmac-sha256"
+        },
+        "keyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "headerName": {
+          "const": "X-Hermes-Workflow-Signature"
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

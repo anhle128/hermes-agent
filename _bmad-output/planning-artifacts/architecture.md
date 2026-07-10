@@ -2,8 +2,9 @@
 title: hermes-agent Architecture Handoff - Hermes Agent Workflow Commander
 status: handoff
 created: '2026-07-02'
-updated: '2026-07-02'
+updated: '2026-07-09'
 source_spine: workflow-engine parent workspace ARCHITECTURE-SPINE.md (architecture-workflow-engine-2026-06-26)
+localContractPackage: _bmad-output/planning-artifacts/contracts/workflow-commander/
 ---
 
 # Architecture: hermes-agent Slice For Hermes Agent Workflow Commander
@@ -61,7 +62,9 @@ Workflow command envelopes, workflow event envelopes, provider binding records, 
 `hermes-agent` stays on Python >=3.11,<3.14, FastAPI >=0.104.0,<1, Pydantic 2.13.4, Uvicorn >=0.24.0,<1, pytest 9.0.2, ruff 0.15.10, existing Kanban over SQLite WAL (workspace version 0.17.0).
 
 ### AD-9 - Contract-first, then split implementation [ADOPTED]
-Implementation starts with shared examples/schemas for workflow command envelopes, event envelopes, Workflow Provider Binding shape, Project Work Item identity, Phase Task identity — these do not exist yet as of this handoff (see "Blocked Dependencies" below).
+Implementation starts with shared examples and schemas for workflow command envelopes, event envelopes, Workflow Provider Binding shape, Project Work Item identity, Phase Task identity, materialization idempotency, callback rejection, and delivery-health cases.
+The local Hermes handoff package now exists at `_bmad-output/planning-artifacts/contracts/workflow-commander/`.
+Implementation stories still need compatibility tests that load these artifacts before they can be marked ready.
 
 ### AD-10 - Materialize isolated subproject planning handoffs before implementation [ADOPTED]
 This file, `prd.md`, and `epics.md` are that materialization for `hermes-agent`.
@@ -90,7 +93,7 @@ This file, `prd.md`, and `epics.md` are that materialization for `hermes-agent`.
 
 | Name | Version |
 | --- | --- |
-| hermes-agent | 0.17.0 |
+| hermes-agent | 0.18.0 |
 | Python | >=3.11,<3.14 |
 | FastAPI | >=0.104.0,<1 |
 | Pydantic | 2.13.4 |
@@ -160,20 +163,24 @@ erDiagram
 | CAP-9 phase tasks and gates | Phase task model and HILT gate records | AD-4, AD-5, AD-7 |
 | CAP-10 story timeline and reconciliation | Reconciliation projection and Story Timeline | AD-5, AD-7, AD-9 |
 
-## Deferred (hermes-agent-relevant)
+## Implementation Validation Gates
 
-| Deferred Decision | Owner | Gate Before Implementation |
+| Contract Area | Owner | Gate Before Implementation |
 | --- | --- | --- |
-| Exact provider command JSON result schemas | Archon with Hermes consumer review | Shared success/error examples pass compatibility tests in both subprojects. |
-| Exact workflow event signature algorithm, replay window, header names | Provider owner with Hermes security review | Event examples include signed/expired/duplicate/wrong-binding/invalid-schema cases. |
+| Provider command JSON result schemas | Archon with Hermes consumer review | Seeded command envelope examples pass compatibility tests in both subprojects. |
+| Workflow event signature metadata, replay window, and header names | Provider owner with Hermes security review | Seeded event and rejection examples pass signed, expired, duplicate, wrong-binding, and invalid-schema tests. |
 | Exact Hermes Project Binding persistence schema | hermes-agent | Migration/uniqueness tests prove profile/cwd/GitHub/BMAD-mount/provider metadata cannot conflict. |
 | Exact project-work, phase-task, gate, event-receipt, reconciliation tables | hermes-agent | Idempotency tests prove repeated materialization and duplicate events don't duplicate work/gates. |
-| Exact `sprint-status.yaml` field mapping and idempotency derivation | hermes-agent with BMAD artifact review | Shared fixtures cover missing/malformed/unchanged/renamed/updated stories. |
+| `sprint-status.yaml` field mapping and idempotency derivation | hermes-agent with BMAD artifact review | Seeded materialization fixtures cover missing, malformed, unchanged, changed, and duplicate phase-task cases. |
+| Diagnostic and recovery vocabulary | hermes-agent with provider review | Seeded operational diagnostic examples cover binding conflict and unresolved completion evidence. |
+| Gate decision audit shape | hermes-agent | Seeded gate-decision examples cover approval, rejection, evidence references, recovery action, and provider command separation. |
 | Auto-pick and auto-continue policy | Product and hermes-agent | Policy tests prove no HILT gate is bypassed and no story starts without allowed authority. **Still genuinely open — no policy decided anywhere as of this handoff.** |
 
-## Blocked Dependencies
+## Contract Readiness Dependencies
 
-The shared contract fixtures every consumer story below references (workflow command envelope, workflow event envelope, provider binding schema, project-work identity schema — see `_bmad-output/planning-artifacts/contracts/workflow-commander/README.md` in the parent workspace) are **not yet created** as of this handoff (2026-07-02). Do not mark consumer stories implementation-ready until these exist here or are regenerated into this local handoff.
+The shared contract fixtures every consumer story references now exist in the local handoff package at `_bmad-output/planning-artifacts/contracts/workflow-commander/`.
+This resolves the missing-fixture planning blocker from the 2026-07-09 implementation-readiness report.
+Do not mark a consumer story implementation-ready until its tests validate the exact schemas and examples it consumes, and do not claim integration completion until the matching Archon producer story emits compatible CLI JSON or signed workflow events.
 
 ## Validation Command
 

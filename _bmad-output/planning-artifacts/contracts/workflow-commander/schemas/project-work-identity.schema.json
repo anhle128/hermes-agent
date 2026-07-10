@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.hermes.local/workflow-commander/project-work-identity.schema.json",
+  "title": "Project Work Item Identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "boundProjectCwd",
+    "bmadArtifactPath",
+    "bmadEpicId",
+    "bmadStoryId",
+    "identityKey"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "workflow.project-work-identity/1"
+    },
+    "boundProjectCwd": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bmadArtifactPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bmadEpicId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bmadStoryId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identityKey": {
+      "type": "string",
+      "pattern": "^pwi:[a-zA-Z0-9._:-]+$"
+    },
+    "displayName": {
+      "type": "string"
+    }
+  }
+}

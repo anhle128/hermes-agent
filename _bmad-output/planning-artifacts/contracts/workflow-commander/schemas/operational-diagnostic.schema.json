@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.hermes.local/workflow-commander/operational-diagnostic.schema.json",
+  "title": "Operational Diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "diagnosticId",
+    "category",
+    "severity",
+    "message",
+    "nextActionOwner",
+    "recoveryOptions",
+    "redactionApplied",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "workflow.operational-diagnostic/1"
+    },
+    "diagnosticId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "enum": [
+        "configuration",
+        "user_decision",
+        "external_delay",
+        "implementation_defect",
+        "provider_contract",
+        "security_rejection",
+        "timeout",
+        "unexpected_state",
+        "unresolved_completion_evidence"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "info",
+        "warning",
+        "blocking",
+        "critical"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "affectedRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectBindingId": {
+          "type": "string"
+        },
+        "projectWorkIdentityKey": {
+          "type": "string"
+        },
+        "phaseTaskIdentityKey": {
+          "type": "string"
+        },
+        "workflowRunId": {
+          "type": "string"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "artifactPath": {
+          "type": "string"
+        }
+      }
+    },
+    "nextActionOwner": {
+      "enum": [
+        "user",
+        "configuration",
+        "hermes_automation",
+        "workflow_provider",
+        "bmad",
+        "github",
+        "implementation_agent"
+      ]
+    },
+    "recoveryOptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "repair_project_binding",
+          "remount_bmad_skills",
+          "retry_provider_command",
+          "reconcile_provider_state",
+          "inspect_provider_logs",
+          "rerun_fix_loop",
+          "keep_gate_blocked",
+          "update_project_binding",
+          "resolve_pr_gate_conflict",
+          "inspect_bmad_artifact"
+        ]
+      }
+    },
+    "redactionApplied": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolvedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolutionSource": {
+      "enum": [
+        "user",
+        "reconciliation",
+        "provider_event",
+        "provider_command",
+        "implementation_agent"
+      ]
+    }
+  }
+}

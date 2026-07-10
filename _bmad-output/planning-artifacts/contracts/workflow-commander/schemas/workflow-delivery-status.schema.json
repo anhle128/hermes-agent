@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.hermes.local/workflow-commander/workflow-delivery-status.schema.json",
+  "title": "Workflow Delivery Status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "provider",
+    "workflowRunRef",
+    "state",
+    "checkedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "workflow.delivery-status/1"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflowRunRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "runId"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflowName": {
+          "type": "string"
+        }
+      }
+    },
+    "state": {
+      "enum": [
+        "healthy",
+        "delayed",
+        "retrying",
+        "failed",
+        "duplicated",
+        "terminal_failure",
+        "waiting_for_reconciliation"
+      ]
+    },
+    "lastAttemptAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nextAttemptAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lastErrorCategory": {
+      "type": "string"
+    },
+    "duplicateSafe": {
+      "type": "boolean"
+    },
+    "reconciliationNeeded": {
+      "type": "boolean"
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
