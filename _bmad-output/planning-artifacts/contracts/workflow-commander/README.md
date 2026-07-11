@@ -187,13 +187,15 @@ If a downstream story depends on one of these shared examples and the relevant e
 
 ## Validation
 
-Run this command from the Archon subproject root:
+Run this command from the `hermes-agent` subproject root:
 
 ```bash
-python3 _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py
+uv run python _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py
 ```
 
 The validator uses only Python standard-library JSON parsing and explicit invariant checks.
+The command intentionally uses the repository Python resolution path so validation runs on the supported project runtime (`>=3.11,<3.14`).
+A bare `python3` command is acceptable only when it resolves to a supported Python runtime.
 It checks strict UTF-8 JSON parseability with duplicate-key and non-standard constant rejection, schema and example conformance against the shipped JSON schemas, required metadata fields, command envelope success and error shape, binding vocabulary, forbidden binding keys, delivery status vocabulary, event envelope routing metadata, project identity consistency, per-event payload fields, redelivery idempotency stability, workspace-relative file URI targets, callback rejection semantics, Project Work Item identity inputs, percent-encoded Project Work Item identity key derivation, Phase Task identity derivation, materialization identity stability, duplicate Phase Task prevention, fail-closed materialization source and recovery safety, concrete downstream readiness expectations, required JSON files as regular non-empty files, no unexpected JSON examples outside the canonical fixture list, no raw secret or raw signature material in schemas or examples including nested array string values, no hard-coded deferred signature policy values, no host-specific absolute paths in schemas or examples including nested array string values and common local temp prefixes, no symlinks, and local package validation without parent workspace traversal.
 
 ## Readiness Rule

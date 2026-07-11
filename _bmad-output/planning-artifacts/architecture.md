@@ -2,7 +2,7 @@
 title: hermes-agent Architecture Handoff - Hermes Agent Workflow Commander
 status: handoff
 created: '2026-07-11'
-updated: '2026-07-11'
+updated: '2026-07-12'
 source: workflow-engine parent architecture materialized as local hermes-agent input
 local_contract_package: contracts/workflow-commander/
 ---
@@ -72,7 +72,8 @@ Hermes implementation stories consume those producer contracts through explicit 
 
 Workflow command envelopes, workflow event envelopes, Workflow Provider Binding records, provider delivery status records, Project Work Item identity, Phase Task identity, gate decision records, and diagnostic records are JSON and schema-versioned.
 Schemas alone do not make downstream integration ready.
-Each story must validate the specific examples it consumes once those example files exist locally.
+Each story must validate the specific schemas and examples it consumes from the local contract package.
+If a future story needs an example family that is not present locally, that story remains blocked until the missing fixture is added and validated.
 
 ### AD-8: Ratify The Brownfield Stack And Avoid New Runtime Infrastructure
 
@@ -157,20 +158,27 @@ Project Work Item projects source-labeled Story Status History entries.
 ## Contract Package Reality
 
 The local contract package is `contracts/workflow-commander/`.
-The local package currently includes schema files under `schemas/`.
-No example fixture files were observed under a local `examples/` folder during this handoff refresh.
-Downstream stories must keep example fixture dependencies blocked until the specific required example files exist locally and compatibility tests load them.
+The local package includes schema files under `schemas/` and 65 JSON examples under `examples/`.
+The example inventory currently includes 16 Archon command examples, 14 Archon provider-binding examples, 7 delivery-status examples, 6 generic workflow-event examples, 7 Archon provider-event examples, 9 callback-rejection examples, and 6 materialization examples.
+The package validates from this repository with:
+
+```text
+uv run python _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py
+```
+
+Bare `python3` is not the canonical validation command for this handoff because a system Python may be older than the project floor of `>=3.11,<3.14`.
+Downstream stories may use the shipped fixtures as local readiness evidence, but provider-dependent stories still require compatible Archon producer output before they can be marked complete.
 
 ## Implementation Validation Gates
 
 | Contract Area | Owner | Gate Before Hermes Story Completion |
 | --- | --- | --- |
-| Workflow command envelope and provider binding | Parent Story 1.3a with Archon producers | Hermes consumer tests load command and binding schemas plus required examples once present. |
-| Workflow event envelope and rejection cases | Parent Story 1.3b with Archon producers | Hermes ingress tests load signed, stale, duplicate, wrong-binding, wrong-profile, and schema-failure examples once present. |
-| Materialization and phase identity | Parent Story 1.3c | Hermes materialization tests load Project Work Item and Phase Task identity examples once present. |
-| Provider delivery status | Parent Story 1.3a or 1.3b with Archon delivery producer | Hermes health tests classify healthy, delayed, duplicated, failed, terminal, and reconciliation-needed states once examples exist. |
-| Gate decision record | Parent contract work with Hermes gate stories | Hermes gate tests keep human decision records separate from provider command results. |
-| Operational diagnostics | Parent contract work with Hermes diagnostic stories | Hermes diagnostics tests redact secrets and preserve source-linked recovery evidence. |
+| Workflow command envelope and provider binding | Parent Story 1.3a with Archon producers | Hermes consumer tests load the shipped command, binding, and delivery schemas plus local Archon examples. |
+| Workflow event envelope and rejection cases | Parent Story 1.3b with Archon producers | Hermes ingress tests load the shipped generic workflow-event examples, Archon provider-event examples, and callback-rejection fixtures. |
+| Materialization and phase identity | Parent Story 1.3c | Hermes materialization tests load the shipped Project Work Item, Phase Task identity, and materialization examples. |
+| Provider delivery status | Parent Story 1.3a or 1.3b with Archon delivery producer | Hermes health tests classify the shipped healthy, delayed, duplicated, failed, terminal, retrying, and reconciliation-pending examples. |
+| Gate decision record | Parent contract work with Hermes gate stories | Hermes gate tests load the gate-decision schema and keep human decision records separate from provider command results; any missing story-specific examples block only the consuming gate story. |
+| Operational diagnostics | Parent contract work with Hermes diagnostic stories | Hermes diagnostics tests load the operational-diagnostic schema and redact secrets while preserving source-linked recovery evidence; any missing story-specific examples block only the consuming diagnostic story. |
 
 ## Candidate Validation Commands
 
@@ -179,6 +187,7 @@ Candidate validation commands are:
 
 ```text
 uv sync --extra dev
+uv run python _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py
 uv run pytest
 uv run ruff check .
 ```
