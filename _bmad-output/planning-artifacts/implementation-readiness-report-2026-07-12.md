@@ -3,7 +3,7 @@ project: hermes-agent
 workflow: bmad-check-implementation-readiness
 invocation: hermes-workflow
 date: 2026-07-12
-status: NEEDS WORK
+status: NOT READY
 issueCounts:
   critical: 0
   major: 1
@@ -55,7 +55,7 @@ missingFindings: []
 ### Epics & Stories Files Found
 
 **Whole Documents:**
-- `_bmad-output/planning-artifacts/epics.md` (66,990 bytes, modified 2026-07-12 06:28:01 +0700)
+- `_bmad-output/planning-artifacts/epics.md` (67,684 bytes, modified 2026-07-12 06:42:31 +0700)
 
 **Sharded Documents:**
 - None found
@@ -233,7 +233,7 @@ None. A dedicated graphical UX is explicitly out of scope for v1, and the headle
 
 ### Epic Structure Validation
 
-The epics are user-outcome oriented rather than technical milestones:
+The epics are user-outcome oriented rather than pure technical milestones:
 
 - Epic 2 lets Kevin bind a project, mount BMAD skills, run planning from the correct cwd, and materialize BMAD stories into Hermes project work.
 - Epic 3 lets Kevin connect to workflow providers, control workflow runs, and inspect event/outbox health without opening the provider dashboard.
@@ -316,17 +316,17 @@ None.
 
 ### Overall Readiness Status
 
-NEEDS WORK.
+NOT READY.
 
 The local planning package is substantially aligned and usable for Hermes-side implementation planning:
 
 - PRD, architecture, epics, and UX artifacts are present as whole documents.
 - PRD FR coverage is 100%.
 - UX and architecture agree on the headless v1 boundary.
-- `sprint-status.yaml` now matches the current 30-story epics structure.
+- `sprint-status.yaml` matches the current 30-story epics structure.
 - The local Workflow Commander contract package validates successfully with 7 schemas and 65 examples.
 
-The handoff still needs work before provider-dependent stories can be claimed complete, because this local handoff does not prove compatible external Archon producer output.
+The handoff is not fully implementation-ready because this local package does not prove compatible external Archon producer output. Provider-dependent Hermes stories may proceed against local fixtures where their story allows it, but they must not be marked done from local fixtures alone.
 
 ### Issue Counts
 
@@ -353,11 +353,11 @@ None.
 ### Recommended Next Steps
 
 1. Proceed only with stories whose dependencies are locally satisfiable, starting from Epic 2 in sprint-status order.
-2. Keep Archon-dependent stories from being marked done until compatible producer command JSON, binding status, delivery status, and signed workflow event output validate against the local contract package.
+2. Keep Archon-dependent stories from being marked done until compatible provider binding lifecycle output, workflow command output, workflow event output, and delivery/outbox status output validate against the local contract package.
 3. Preserve the current regenerated `sprint-status.yaml` structure so automation continues to see all 30 split story keys.
 
 ### Final Note
 
-This assessment identified 2 issues across 2 severity categories. There are no critical blockers in the local planning package, but provider-dependent completion remains gated by external compatibility proof.
+This assessment identified 2 issues across 2 categories. The major issue controls completion claims for provider-dependent work; the minor issue is a documentation cleanup. Address the external Archon evidence gap before claiming full implementation readiness.
 
-Assessor: Codex using `bmad-check-implementation-readiness` in non-interactive automation mode.
+Assessor: Codex using `bmad-check-implementation-readiness`.
