@@ -185,7 +185,6 @@ Acceptance Criteria:
 
 - Given an enabled Project Binding with a valid Bound Project Cwd, when the user starts a BMAD planning workflow from Hermes, then Hermes runs the workflow with the Bound Project Cwd as the working directory and any BMAD artifacts produced through Hermes land under that project's configured `_bmad-output` location.
 - Given an enabled Project Binding with a valid Bound Project Cwd, when Hermes exercises the minimal provider-action cwd port, then Hermes passes the Bound Project Cwd to that port and records the cwd used for the action without requiring the Archon provider adapter to exist yet.
-- Given Story 3.4a implements the real provider adapter, when a provider requires cwd, then that story must reuse the Story 2.3 cwd guard and prove the adapter runs from the Bound Project Cwd.
 - Given the selected project has no Bound Project Cwd, when the user attempts to start any BMAD or workflow provider action, then Hermes blocks the action and shows a diagnostic that identifies the missing cwd requirement.
 - Given a mounted BMAD skill is visible from a profile, when Hermes determines where a workflow action should run, then Hermes uses the active Project Binding cwd, not skill visibility, as the artifact placement and execution authority.
 - Given Hermes executes any project-bound workflow action, when the action completes, fails, or is cancelled, then Hermes persists an audit record containing the Project Binding id, profile identity, cwd, command or workflow name, started time, completed time if available, result state, and correlation id if available.
@@ -296,6 +295,7 @@ Integration validation: Hermes adapter tests parse provider `archon` start and s
 Acceptance Criteria:
 
 - Given a valid Project Binding and valid workflow provider binding, when the user starts a provider workflow run from Hermes, then Hermes invokes the selected provider adapter from the Bound Project Cwd and records stdout, stderr, exit code, timeout, correlation id, workflow name, workflow run reference, and parsed JSON result.
+- Given the selected provider adapter requires cwd, when Hermes invokes provider start or status commands, then Hermes reuses the Story 2.3 cwd guard and proves the real adapter runs from the Bound Project Cwd.
 - Given Hermes needs workflow status, when the user or reconciliation process requests status for a provider workflow run, then Hermes invokes the provider adapter status command and updates only the workflow reference or diagnostic state allowed by the parsed schema.
 - Given a provider start or status command returns malformed JSON, a schema-version mismatch, timeout, or unexpected exit code, when Hermes processes the result, then Hermes fails closed and does not update Project Work state as if the command succeeded.
 

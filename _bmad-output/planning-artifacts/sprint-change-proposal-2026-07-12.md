@@ -4,187 +4,128 @@
 **Project:** hermes-agent
 **Requested by:** kevin
 **Change trigger:** `implementation-readiness-report-2026-07-12.md` marked the handoff `NOT READY`.
-**Mode:** Automated batch correction with user approval supplied by the workflow invocation.
+**Mode:** Automated batch correction. User approval for in-scope planning-artifact corrections was supplied by the workflow invocation.
 
 ## 1. Issue Summary
 
-The latest readiness result found the Workflow Commander planning handoff not ready because one configured persistent fact was missing and several local planning artifacts disagreed about contract readiness, NFR numbering, and story quality.
-The report also recorded two minor concerns: no UX artifact existed for the headless operator experience, and external Archon producer completion status was not locally proven.
+The latest readiness evaluator found three implementation-readiness issues:
+
+1. Critical: `_bmad-output/implementation-artifacts/sprint-status.yaml` was stale. It tracked 22 older/composite story keys while `_bmad-output/planning-artifacts/epics.md` defines 30 current Hermes-owned stories.
+2. Major: provider-dependent Hermes stories still depend on compatible Archon producer output that has not been proven in this local handoff.
+3. Minor: Story 2.3 carried one acceptance criterion about future real-provider cwd validation that belongs with Story 3.4a.
+
+The trigger is a planning and handoff consistency problem, not a change to Workflow Commander MVP scope.
 
 ## 2. Impact Analysis
 
-**Epic impact:** Epics 2 through 5 remain valid and no MVP scope reduction is required.
-The correction updates readiness gates and story wording, but does not add runtime scope or a graphical frontend.
+**Epic impact:** Epics 2 through 5 remain valid. No epic is removed, added, renumbered, or resequenced.
 
-**Story impact:** Story 2.3 is narrowed so it owns generic cwd enforcement and a minimal provider-action cwd test double, while real Archon adapter cwd validation remains with Story 3.4a.
-Story 5.3a is strengthened with an explicit diagnostic family matrix and additional persistence/redaction/idempotency acceptance criteria.
+**Story impact:** The implementation tracker now mirrors the 30 story headings in `epics.md`. Story 2.3 is narrowed to generic cwd enforcement and the minimal provider-action test double. Story 3.4a now owns the real provider-adapter cwd validation criterion.
 
-**Artifact conflicts:** `architecture.md` and the contract package now agree that 65 examples exist and validate through the repository Python path.
-`prd.md` and `epics.md` now use matching NFR-1 through NFR-17 identifiers.
-The missing `cross-project-isolated-handoff-contract.md` persistent fact has been restored from local planning facts.
+**Artifact conflicts:** The stale tracker could cause non-interactive automation to pick obsolete or collapsed story keys. The correction regenerates the tracker from the current epics and preserves all story statuses as `backlog`.
 
-**Technical impact:** No production code changed.
-Future implementation work should use `uv run python _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py` for contract validation.
+**Technical impact:** No production code changed. Provider-dependent stories remain completion-gated by validated Archon producer output. The tracker schema does not define a `blocked` story status, so dependency blocking remains in the story dependency records and tracker notes rather than an unsupported status value.
 
 ## 3. Recommended Approach
 
 Use **Direct Adjustment**.
-The readiness issues were local artifact consistency and story-quality defects, not evidence that the Workflow Commander MVP or epic sequence is wrong.
-Rollback and MVP review are not justified.
 
-**Effort:** Medium planning-artifact correction.
-**Risk:** Low for runtime behavior because the change is documentation and planning only.
-**Timeline impact:** Removes local readiness blockers for the handoff package, except for external Archon producer completion evidence that is not available in this worktree.
+The readiness findings can be resolved by updating planning artifacts in place:
+
+- Regenerate the sprint tracker from the current epics.
+- Preserve explicit Archon dependency records and prevent completion claims from local fixtures alone.
+- Move the future-provider cwd validation criterion to the story that introduces the real provider adapter.
+
+Rollback and MVP review are not justified because the PRD, architecture, epics, UX contract, and local contract package are otherwise aligned.
+
+**Effort:** Low planning correction.
+**Risk:** Low. The changes affect planning/tracking artifacts only.
+**Timeline impact:** Removes the queue mismatch that blocks story automation. Provider-dependent completion remains gated until compatible Archon producer output is validated.
 
 ## 4. Detailed Change Proposals
 
-### Persistent Fact
+### Sprint Status Tracker
 
 OLD:
 
 ```text
-_bmad-output/planning-artifacts/cross-project-isolated-handoff-contract.md was configured as a persistent fact but did not exist.
+_bmad-output/implementation-artifacts/sprint-status.yaml tracked 22 older/composite story keys generated on 2026-07-09.
+Examples included 2-1-create-and-validate-project-bindings, 3-6c-map-accepted-workflow-events-to-project-work, and 5-3-surface-operational-diagnostics-and-recovery-paths.
 ```
 
 NEW:
 
 ```text
-Added the missing file with isolated-handoff rules, ownership boundaries, local contract package state, validation command, and external Archon dependency caveat.
+_bmad-output/implementation-artifacts/sprint-status.yaml tracks all 30 current story keys from epics.md, including:
+- 2.1a, 2.1b, 2.1c
+- 3.6d and 3.6e
+- 5.2b through 5.2e
+- 5.3a through 5.3c
 ```
 
-Rationale: Readiness workflows need this fact to validate isolated implementation without reading parent planning files.
+Rationale: Non-interactive story creation and implementation workflows must resolve the same story queue that `epics.md` defines.
 
-### PRD NFRs
+### Provider-Dependent Story Completion Gate
 
 OLD:
 
 ```text
-The PRD listed 16 unlabeled NFR bullets.
-The epics NFR coverage map referenced NFR-1 through NFR-17.
+Provider-dependent stories could be misread as locally complete because the local contract package validates.
 ```
 
 NEW:
 
 ```text
-The PRD now labels NFR-1 through NFR-17 and includes NFR-15 for dependency records and bounded ownership.
+The tracker keeps provider-dependent stories in backlog, and the tracker notes state that Archon-dependent Hermes stories must not be marked done from local fixtures alone.
+Existing epics dependency records are preserved until compatible Archon producer output is available and validated.
 ```
 
-Rationale: Implementation agents need stable NFR ids that match the epics traceability map.
+Rationale: Local fixtures support Hermes-side implementation, but they do not prove the external Archon producer output.
 
-### Architecture And Contract Validation
+### Story 2.3 And Story 3.4a
 
 OLD:
 
 ```text
-Architecture said no example fixtures were observed.
-The contract README instructed bare python3 validation.
+Story 2.3 included a future-story acceptance criterion requiring Story 3.4a to reuse the cwd guard with the real provider adapter.
 ```
 
 NEW:
 
 ```text
-Architecture records the current 65-example fixture inventory and uses uv run python for validation.
-The contract README now uses the same supported Python resolution path.
+Story 2.3 now keeps only generic cwd enforcement and minimal provider-action test-double validation.
+Story 3.4a now includes the real provider-adapter cwd validation criterion.
 ```
 
-Rationale: The local package validates with CPython 3.11 through `uv`; system `python3` may be too old for this repository.
-
-### Story 2.3
-
-OLD:
-
-```text
-Story 2.3 required proving provider adapter calls receive the Bound Project Cwd, even though real provider adapters are introduced in Epic 3.
-```
-
-NEW:
-
-```text
-Story 2.3 now proves cwd propagation through BMAD actions and a minimal provider-action cwd test double.
-Story 3.4a remains responsible for real Archon provider adapter cwd validation.
-```
-
-Rationale: This removes forward-coupling while preserving FR-3 cwd safety.
-
-### Story 5.3a
-
-OLD:
-
-```text
-Story 5.3a had two broad acceptance criteria for a wide diagnostic persistence surface.
-```
-
-NEW:
-
-```text
-Story 5.3a now includes a diagnostic family matrix for configuration, decision, external-delay, implementation-defect, duplicate-event, outbox, stale-PR, and unresolved-gate diagnostics, plus explicit persistence, redaction, duplicate-safe, and completion-conflict acceptance criteria.
-```
-
-Rationale: The story is now implementable as a taxonomy and persistence foundation without absorbing query formatting or resolution history.
-
-### UX Artifact
-
-OLD:
-
-```text
-No UX artifact existed.
-```
-
-NEW:
-
-```text
-Added ux-headless-interaction-contract.md to capture command/API/notification interaction expectations for the explicitly headless v1 scope.
-```
-
-Rationale: The artifact documents headless UX obligations without authorizing a graphical frontend.
-
-### External Producer Evidence
-
-OLD:
-
-```text
-External Archon producer completion status was not locally proven.
-```
-
-NEW:
-
-```text
-No unsupported producer completion status was invented.
-The restored handoff contract states that provider-dependent stories remain externally gated until compatible Archon producer output is available and validated.
-```
-
-Rationale: This issue cannot be converted into proof from local Hermes artifacts alone.
+Rationale: The real provider adapter is introduced in Epic 3, so adapter-specific validation belongs in Story 3.4a while Story 2.3 remains independently implementable.
 
 ## 5. Checklist Summary
 
 | Checklist Area | Status | Finding |
 | --- | --- | --- |
-| Trigger and context | Done | Readiness report identified the change trigger and evidence. |
-| Epic impact | Done | Epics remain valid; no replan or resequencing required. |
-| Artifact conflict analysis | Done | PRD, architecture, epics, contract README, missing handoff fact, and UX artifact were corrected. |
+| Trigger and context | Done | Latest readiness report supplied the trigger and evidence. |
+| Epic impact | Done | Epics remain valid; no resequencing or scope reduction required. |
+| Artifact conflict analysis | Done | `sprint-status.yaml` was the only stale artifact requiring regeneration. |
 | Path forward | Done | Direct Adjustment selected. |
-| Proposal components | Done | Specific before/after proposals are captured above. |
-| Final handoff | Done with external caveat | Archon producer completion evidence remains external and unclaimed. |
+| Proposal components | Done | Specific tracker and story-text edits are captured above. |
+| Final handoff | Done with external caveat | Provider-dependent stories remain gated by compatible Archon producer output. |
 
 ## 6. Implementation Handoff
 
-**Scope classification:** Moderate planning correction.
+**Scope classification:** Minor planning correction.
 
 **Developer agent responsibilities:**
 
-- Use the local PRD, architecture, epics, UX contract, handoff contract, and contract package as the implementation inputs.
-- Validate contracts with `uv run python _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py`.
-- Implement Story 2.3 against generic cwd enforcement and the minimal provider-action test double; defer real Archon adapter cwd validation to Story 3.4a.
-- Implement Story 5.3a as the diagnostic taxonomy and persistence foundation defined by the matrix.
-
-**PO/DEV responsibilities before provider-dependent story completion:**
-
-- Keep Archon producer dependencies explicit in story dependency records.
-- Do not mark provider-dependent stories complete until compatible Archon producer output is available and validates against the local fixtures.
+- Use `_bmad-output/implementation-artifacts/sprint-status.yaml` as the current implementation tracker.
+- Do not mark provider-dependent Hermes stories done from local fixtures alone.
+- Validate compatible Archon producer output before completion claims for provider-dependent stories.
+- Implement Story 2.3 without requiring the real Archon adapter.
+- Implement Story 3.4a with real provider-adapter cwd validation.
 
 **Success criteria:**
 
-- Readiness workflows can load the restored persistent fact.
-- PRD and epics NFR ids remain aligned.
-- Architecture and contract README describe the actual local fixture package and supported validation command.
-- Story 2.3 and Story 5.3a are implementable without forward-coupling or underspecified acceptance criteria.
+- The tracker contains 30 current story keys from `epics.md`.
+- Obsolete/composite tracker keys are removed.
+- Story 2.3 has no future-provider acceptance criterion.
+- Story 3.4a owns real adapter cwd validation.
+- Provider-dependent completion gating remains explicit and unsupported external evidence is not invented.

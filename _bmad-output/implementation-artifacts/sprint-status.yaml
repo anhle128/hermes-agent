@@ -1,9 +1,9 @@
-# generated: 2026-07-09T09:54:27+0700
-# last_updated: 2026-07-09T09:54:27+0700
+# generated: 2026-07-12T06:27:13+0700
+# last_updated: 2026-07-12T06:27:13+0700
 # project: hermes-agent
 # project_key: NOKEY
 # tracking_system: file-system
-# story_location: /Users/agent/Desktop/workspace/opensource/hermes-agent/_bmad-output/implementation-artifacts
+# story_location: /Users/agent/.archon/workspaces/anhle128/hermes-agent/worktrees/archon/thread-c73110ac/_bmad-output/implementation-artifacts
 
 # STATUS DEFINITIONS:
 # ==================
@@ -39,22 +39,27 @@
 # - Developer typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
+# - Provider-dependent Hermes stories retain their Archon dependency records in epics.md.
+#   Do not mark those stories done from local fixtures alone; compatible Archon producer
+#   output must be available and validated first.
 
-generated: "2026-07-09T09:54:27+0700"
-last_updated: "2026-07-09T09:54:27+0700"
+generated: "2026-07-12T06:27:13+0700"
+last_updated: "2026-07-12T06:27:13+0700"
 project: hermes-agent
 project_key: NOKEY
 tracking_system: file-system
-story_location: /Users/agent/Desktop/workspace/opensource/hermes-agent/_bmad-output/implementation-artifacts
+story_location: /Users/agent/.archon/workspaces/anhle128/hermes-agent/worktrees/archon/thread-c73110ac/_bmad-output/implementation-artifacts
 
 development_status:
   epic-2: backlog
-  2-1-create-and-validate-project-bindings: backlog
+  2-1a-create-and-persist-project-bindings: backlog
+  2-1b-validate-project-binding-safety-and-conflicts: backlog
+  2-1c-manage-project-binding-lifecycle-and-status: backlog
   2-2-mount-project-local-bmad-skills-for-a-binding: backlog
   2-3-enforce-bound-project-cwd-for-workflow-actions: backlog
   2-4-invoke-bmad-planning-workflows-from-hermes: backlog
   2-5-materialize-sprint-status-into-project-work-items: backlog
-  2-6-create-phase-task-and-product-work-lanes: backlog
+  2-6-create-phase-task-and-operational-work-state: backlog
   epic-2-retrospective: optional
   epic-3: backlog
   3-2-register-and-diagnose-workflow-provider-bindings-from-hermes: backlog
@@ -63,8 +68,10 @@ development_status:
   3-4c-resume-retry-and-cancel-provider-workflow-runs-from-hermes: backlog
   3-6a-validate-profile-routed-workflow-event-ingress: backlog
   3-6b-persist-workflow-event-idempotency-receipts-and-duplicate-diagnostics: backlog
-  3-6c-map-accepted-workflow-events-to-project-work: backlog
-  3-8-surface-workflow-event-delivery-and-outbox-health-in-hermes: backlog
+  3-6c-map-workflow-outcome-events-to-project-work: backlog
+  3-6d-map-approval-request-events-to-gate-state: backlog
+  3-6e-map-workflow-artifact-events-and-diagnose-unresolved-mappings: backlog
+  3-8-return-workflow-event-delivery-and-outbox-health-status: backlog
   epic-3-retrospective: optional
   epic-4: backlog
   4-1-run-story-workflow: backlog
@@ -72,9 +79,13 @@ development_status:
   4-3-capture-human-gate-decisions-and-evidence: backlog
   epic-4-retrospective: optional
   epic-5: backlog
-  5-1-render-unified-story-timeline: backlog
+  5-1-produce-unified-story-status-history: backlog
   5-2a-reconcile-bmad-materialization-drift: backlog
-  5-2b-reconcile-provider-workflow-and-event-delivery-drift: backlog
-  5-2c-reconcile-github-and-done-verification-conflicts: backlog
-  5-3-surface-operational-diagnostics-and-recovery-paths: backlog
+  5-2b-detect-provider-workflow-state-drift: backlog
+  5-2c-reconcile-workflow-event-delivery-evidence: backlog
+  5-2d-apply-deterministic-provider-projection-repairs: backlog
+  5-2e-reconcile-github-and-done-verification-conflicts: backlog
+  5-3a-define-and-persist-operational-diagnostics: backlog
+  5-3b-query-operational-diagnostics-and-recovery-guidance: backlog
+  5-3c-resolve-diagnostics-and-preserve-audit-history: backlog
   epic-5-retrospective: optional
