@@ -4,6 +4,11 @@ workflow: bmad-check-implementation-readiness
 invocation: hermes-workflow
 date: 2026-07-12
 status: NOT READY
+issueCounts:
+  critical: 1
+  major: 1
+  minor: 1
+  warnings: 0
 stepsCompleted:
   - step-01-document-discovery
   - step-02-prd-analysis
@@ -15,12 +20,9 @@ selectedFiles:
   prd: _bmad-output/planning-artifacts/prd.md
   architecture: _bmad-output/planning-artifacts/architecture.md
   epics: _bmad-output/planning-artifacts/epics.md
-  ux: null
+  ux: _bmad-output/planning-artifacts/ux-headless-interaction-contract.md
 duplicateFindings: []
-missingFindings:
-  - UX design document not found under _bmad-output/planning-artifacts using *ux*.md or */ux*/index.md patterns.
-persistentFactIssues:
-  - Configured persistent fact file missing: _bmad-output/planning-artifacts/cross-project-isolated-handoff-contract.md
+missingFindings: []
 ---
 
 # Implementation Readiness Assessment Report
@@ -33,7 +35,7 @@ persistentFactIssues:
 ### PRD Files Found
 
 **Whole Documents:**
-- `_bmad-output/planning-artifacts/prd.md` (15,908 bytes, modified 2026-07-12 06:00:00 +0700)
+- `_bmad-output/planning-artifacts/prd.md` (16,253 bytes, modified 2026-07-12 06:13:53)
 
 **Sharded Documents:**
 - None found
@@ -43,7 +45,7 @@ persistentFactIssues:
 ### Architecture Files Found
 
 **Whole Documents:**
-- `_bmad-output/planning-artifacts/architecture.md` (10,637 bytes, modified 2026-07-12 06:00:00 +0700)
+- `_bmad-output/planning-artifacts/architecture.md` (11,708 bytes, modified 2026-07-12 06:14:16)
 
 **Sharded Documents:**
 - None found
@@ -53,7 +55,7 @@ persistentFactIssues:
 ### Epics & Stories Files Found
 
 **Whole Documents:**
-- `_bmad-output/planning-artifacts/epics.md` (63,985 bytes, modified 2026-07-12 06:00:00 +0700)
+- `_bmad-output/planning-artifacts/epics.md` (66,972 bytes, modified 2026-07-12 06:14:59)
 
 **Sharded Documents:**
 - None found
@@ -63,17 +65,16 @@ persistentFactIssues:
 ### UX Design Files Found
 
 **Whole Documents:**
-- None found
+- `_bmad-output/planning-artifacts/ux-headless-interaction-contract.md` (3,533 bytes, modified 2026-07-12 06:15:33)
 
 **Sharded Documents:**
 - None found
 
-**Selected for assessment:** None
+**Selected for assessment:** `_bmad-output/planning-artifacts/ux-headless-interaction-contract.md`
 
 ### Discovery Issues
 
-- **Missing artifact:** UX design document was not found. This reduces assessment completeness and may block readiness if UX obligations are referenced by PRD, architecture, or epics.
-- **Missing persistent fact:** `_bmad-output/planning-artifacts/cross-project-isolated-handoff-contract.md` was configured as foundational context but does not exist in this worktree.
+- None.
 
 ## PRD Analysis
 
@@ -131,45 +132,45 @@ NFR-11: Project-work changes retain source provenance.
 NFR-12: Next actions use human-facing workflow language.
 NFR-13: Done Verification approval remains separate from GitHub PR merge state.
 NFR-14: Blocking issues return recovery options instead of raw stack traces alone.
-NFR-15: Provider integration surfaces remain generic.
-NFR-16: Isolated local handoffs are complete enough for subproject implementation agents.
+NFR-15: Dependency records and handoff validation preserve bounded ownership between Hermes, BMAD, workflow providers, GitHub, and parent shared contracts.
+NFR-16: Provider integration surfaces remain generic.
+NFR-17: Isolated local handoffs are complete enough for subproject implementation agents.
 
-Total NFRs: 16
+Total NFRs: 17
 
 ### Additional Requirements
 
-- Product boundary: v1 is headless and must not ship a dedicated Workflow Commander dashboard, graphical Kanban board, gate screen, timeline screen, desktop view, web application, or marketing surface.
-- Ownership boundary: Hermes owns Project Binding, BMAD mount, Bound Project Cwd enforcement, BMAD invocation, materialization, Project Work Items, Phase Tasks, HILT Gates, provider adapter consumption, workflow event ingress, Story Status History, reconciliation, diagnostics, and headless validation guidance.
-- Provider boundary: Archon is the first workflow provider and owns producer-side workflow execution, run state, provider binding, provider command JSON, event outbox, delivery status, and signed event production.
-- Non-goals prohibit replacing BMAD, Archon, GitHub, or Hermes Kanban with a monolithic workflow database; requiring provider dashboard usage for normal control; using Archon HTTP APIs for state-changing control; adding Hermes-specific provider command vocabulary; treating `sprint-status.yaml`, GitHub Issues, or provider UI state as Hermes runtime queue truth; relying on global skills as the primary BMAD mount; auto-approving HILT Gates without persisted policy and evidence; writing implementation artifacts from parent planning; and shipping a dedicated graphical frontend in v1.
-- Contract readiness rule: schema files under `contracts/workflow-commander/schemas/` and required example fixture families under `contracts/workflow-commander/examples/` must exist and pass compatibility tests before contract-gated downstream stories can complete.
-- Candidate validation commands: `uv sync --extra dev`, `uv run pytest`, and `uv run ruff check .`.
+- v1 is headless and excludes a dedicated dashboard, graphical Kanban board, gate screen, timeline screen, desktop view, web application, marketing surface, or dedicated graphical frontend.
+- Hermes owns Project Binding, BMAD mount, Bound Project Cwd enforcement, BMAD invocation, materialization, Project Work Items, Phase Tasks, HILT Gates, provider adapter consumption, workflow event ingress, Story Status History, reconciliation, diagnostics, and headless validation guidance.
+- Archon is the first workflow provider and owns producer-side workflow execution, run state, provider binding, provider command JSON, event outbox, delivery status, and signed event production.
+- Required local contract schemas and example fixture families must exist under `contracts/workflow-commander/` and pass compatibility tests before contract-gated downstream stories can complete.
+- Candidate validation commands are `uv sync --extra dev`, `uv run pytest`, and `uv run ruff check .`.
 
 ### PRD Completeness Assessment
 
-The PRD is clear about Hermes-owned scope, ownership boundaries, headless product boundary, and traceable FR/NFR identifiers. It also contains an explicit contract readiness rule. The main completeness risk is that the separately configured cross-project isolated handoff contract is missing from this worktree, and no UX artifact was found to validate any workflow or interaction assumptions beyond the headless boundary.
+The PRD is clear about product boundary, ownership boundary, provider boundary, functional requirements, non-functional requirements, and downstream contract readiness. It is suitable for traceability validation against epics.
 
 ## Epic Coverage Validation
 
 ### Epic FR Coverage Extracted
 
-- FR-1: Covered in Epic 2 by Stories 2.1a, 2.1b, and 2.1c.
-- FR-2: Covered in Epic 2 by Story 2.2.
-- FR-3: Covered in Epic 2 by Story 2.3.
-- FR-4: Covered in Epic 2 by Story 2.4.
-- FR-5: Covered in Epic 2 by Story 2.5.
-- FR-6: Covered in Epic 2 by Story 2.6.
-- FR-7: Covered in Epic 3 by Story 3.2.
-- FR-8: Covered in Epic 3 by Stories 3.4a, 3.4b, and 3.4c.
-- FR-9: Covered in Epic 3 by Stories 3.6a, 3.6b, 3.6c, 3.6d, and 3.6e.
-- FR-10: Covered in Epic 3 by Story 3.8.
-- FR-11: Covered in Epics 2 and 3 by Stories 2.6 and 3.6c.
-- FR-12: Covered in Epics 3 and 4 by Stories 3.6c, 3.6e, and 4.1.
-- FR-13: Covered in Epics 3 and 4 by Stories 3.6d and 4.2.
-- FR-14: Covered in Epics 3 and 4 by Stories 3.4b, 4.1, 4.2, and 4.3.
-- FR-15: Covered in Epic 5 by Story 5.1.
-- FR-16: Covered in Epic 5 by Stories 5.2a, 5.2b, 5.2c, 5.2d, and 5.2e.
-- FR-17: Covered in Epic 5 by Stories 5.3a, 5.3b, and 5.3c.
+- FR-1: Covered by Epic 2, Stories 2.1a, 2.1b, and 2.1c.
+- FR-2: Covered by Epic 2, Story 2.2.
+- FR-3: Covered by Epic 2, Story 2.3.
+- FR-4: Covered by Epic 2, Story 2.4.
+- FR-5: Covered by Epic 2, Story 2.5.
+- FR-6: Covered by Epic 2, Story 2.6.
+- FR-7: Covered by Epic 3, Story 3.2.
+- FR-8: Covered by Epic 3, Stories 3.4a, 3.4b, and 3.4c.
+- FR-9: Covered by Epic 3, Stories 3.6a, 3.6b, 3.6c, 3.6d, and 3.6e.
+- FR-10: Covered by Epic 3, Story 3.8.
+- FR-11: Covered by Epic 2 Story 2.6 and Epic 3 Story 3.6c.
+- FR-12: Covered by Epic 3 Stories 3.6c and 3.6e and Epic 4 Story 4.1.
+- FR-13: Covered by Epic 3 Story 3.6d and Epic 4 Story 4.2.
+- FR-14: Covered by Epic 3 Story 3.4b and Epic 4 Stories 4.1, 4.2, and 4.3.
+- FR-15: Covered by Epic 5, Story 5.1.
+- FR-16: Covered by Epic 5, Stories 5.2a, 5.2b, 5.2c, 5.2d, and 5.2e.
+- FR-17: Covered by Epic 5, Stories 5.3a, 5.3b, and 5.3c.
 
 Total FRs in epics: 17
 
@@ -177,7 +178,7 @@ Total FRs in epics: 17
 
 | FR Number | PRD Requirement | Epic Coverage | Status |
 | --- | --- | --- | --- |
-| FR-1 | Create and view Project Bindings | Epic 2, Stories 2.1a-2.1c | Covered |
+| FR-1 | Create and manage Project Bindings | Epic 2, Stories 2.1a-2.1c | Covered |
 | FR-2 | Mount project-local BMAD skills | Epic 2, Story 2.2 | Covered |
 | FR-3 | Enforce Bound Project Cwd | Epic 2, Story 2.3 | Covered |
 | FR-4 | Invoke BMAD planning workflows | Epic 2, Story 2.4 | Covered |
@@ -188,7 +189,7 @@ Total FRs in epics: 17
 | FR-9 | Receive typed workflow provider events | Epic 3, Stories 3.6a-3.6e | Covered |
 | FR-10 | Return event delivery and outbox health | Epic 3, Story 3.8 | Covered |
 | FR-11 | Create one Phase Task per BMAD story | Epic 2 Story 2.6; Epic 3 Story 3.6c | Covered |
-| FR-12 | Run the combined story workflow | Epic 3 Stories 3.6c and 3.6e; Epic 4 Story 4.1 | Covered |
+| FR-12 | Run combined story workflow | Epic 3 Stories 3.6c and 3.6e; Epic 4 Story 4.1 | Covered |
 | FR-13 | Gate Done Verification | Epic 3 Story 3.6d; Epic 4 Story 4.2 | Covered |
 | FR-14 | Collect human decisions from Hermes | Epic 3 Story 3.4b; Epic 4 Stories 4.1-4.3 | Covered |
 | FR-15 | Return unified Story Status History | Epic 5, Story 5.1 | Covered |
@@ -197,152 +198,154 @@ Total FRs in epics: 17
 
 ### Missing Requirements
 
-No PRD FRs are missing from the epics document.
+No PRD FRs are missing from the epics document. No extra FR identifiers appear in epics outside PRD FR-1 through FR-17.
 
 ### Coverage Statistics
 
 - Total PRD FRs: 17
 - FRs covered in epics: 17
 - Coverage percentage: 100%
-- FRs in epics but not in PRD: None
 
 ## UX Alignment Assessment
 
 ### UX Document Status
 
-Not found. No whole UX document or sharded UX folder matched `_bmad-output/planning-artifacts/*ux*.md` or `_bmad-output/planning-artifacts/*ux*/index.md`.
-
-### UX/UI Implication Assessment
-
-The PRD, architecture, and epics all define Workflow Commander v1 as a headless product surface. The PRD says the feature ships through commands, agent interactions, structured API or command results, durable records, and optional existing notification transports, and explicitly excludes a dedicated dashboard, graphical Kanban board, gate screen, timeline screen, desktop view, web application, marketing surface, or dedicated graphical frontend. The architecture aligns with this by keeping Hermes as a human-facing command center and by using durable pending-gate queries, authorized decision commands, canonical `blocked` status plus `gate_kind=done_verification`, and structured records.
+Found: `_bmad-output/planning-artifacts/ux-headless-interaction-contract.md`.
 
 ### Alignment Issues
 
-No graphical UX alignment issue was found because the product and architecture explicitly exclude a dedicated UI. Headless interaction requirements are represented in PRD FRs and story acceptance criteria for structured command/API results, pending-gate evidence, notification-safe gate mirrors, human-facing next-action language, and redacted diagnostic output.
+No UX alignment issues were found. The UX document, PRD, and architecture all define Workflow Commander v1 as a headless operator experience delivered through Hermes commands, agent interactions, structured command/API results, durable records, Story Status History, diagnostics, and optional existing notification transports.
+
+The UX contract's required response shapes are supported by architecture decisions and story coverage:
+
+- Project Binding inspection maps to FR-1, AD-2, and Stories 2.1a-2.1c.
+- BMAD workflow invocation maps to FR-3/FR-4, AD-4, and Stories 2.3-2.4.
+- Provider workflow control maps to FR-7/FR-8, AD-3, and Stories 3.2 and 3.4a-3.4c.
+- Done Verification Gate maps to FR-13/FR-14, the gate interaction/completion conventions, and Stories 4.2-4.3.
+- Story Status History maps to FR-15, AD-5, and Story 5.1.
+- Operational diagnostics map to FR-17 and Stories 5.3a-5.3c.
 
 ### Warnings
 
-- No UX artifact exists. This is not a blocker for v1's explicitly headless scope, but implementation should preserve the command/API/notification interaction expectations captured in PRD FR-14, FR-15, FR-17 and Epic 4/5 acceptance criteria.
+None. A dedicated graphical UX is explicitly out of scope for v1, and the headless UX artifact supplies validation expectations for commands, structured results, gates, Story Status History, diagnostics, and redaction.
 
 ## Epic Quality Review
 
 ### Epic Structure Validation
 
-The Hermes epics are user-value oriented rather than purely technical milestones:
+The epics are user-outcome oriented rather than technical milestones:
 
 - Epic 2 lets Kevin bind a project, mount BMAD skills, run planning from the correct cwd, and materialize BMAD stories into Hermes project work.
 - Epic 3 lets Kevin connect to workflow providers, control workflow runs, and inspect event/outbox health without opening the provider dashboard.
-- Epic 4 lets Kevin run the combined story workflow, review done-verification evidence, approve or reject, and route recovery.
-- Epic 5 lets Kevin query Story Status History and resolve drift across BMAD, Hermes, workflow providers, GitHub, workflow events, and gates.
+- Epic 4 lets Kevin run the combined story workflow, review Done Verification evidence, approve or reject, and route recovery.
+- Epic 5 lets Kevin query Story Status History, understand drift, and resolve operational diagnostics.
 
-The missing Epic 1 in the local file is explained by the story ownership note: numbering is preserved from the parent workspace so cross-project dependency records remain stable. This is acceptable for a local handoff, provided parent contract dependencies remain explicit.
+The local handoff intentionally starts at Epic 2 because parent/shared-contract work owns earlier contract stories. This is documented in the epics frontmatter and the cross-project isolated handoff contract, so the numbering gap is not a quality defect.
 
-### Story Dependency Review
+### Story Structure Validation
 
-Hermes-to-Hermes dependencies are ordered backward through the story sequence. No direct forward dependency on a later Hermes story was found.
+- Story headings found: 30.
+- Stories with `Requirements Covered`: 30.
+- Stories with `Implementation Scope`: 30.
+- Stories with `Acceptance Criteria`: 30.
+- Acceptance criteria are generally testable and use Given/When/Then form.
+- Error and failure paths are represented for binding conflicts, invalid cwd, mount failure, malformed provider JSON, schema mismatch, duplicate events, unresolved mappings, delayed delivery, rejected gates, redaction, diagnostics, and reconciliation conflicts.
+- Database/entity creation is scoped to the story that first needs the data. The epics do not ask for all tables or models to be created upfront.
+- Brownfield constraints are represented: the architecture keeps the existing Hermes runtime, uses ports/adapters, preserves Kanban lifecycle values, and avoids new runtime infrastructure or dedicated graphical frontend.
 
-External dependencies are explicit and numerous. Stories reference parent contract Stories 1.3a, 1.3b, 1.3c and Archon producer Stories 3.1, 3.3a, 3.3b, 3.3c, 3.3d, 3.5, and 3.7. The contract package under `contracts/workflow-commander/` exists locally and validates through `uv run python _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py`.
+### Dependency Analysis
 
-Contract validation result:
+No forward dependency between Hermes-owned stories was found. Hermes-owned story dependencies point to earlier same-project stories, parent contract stories, or Archon producer stories. External parent/Archon dependencies are explicitly recorded with `Depends on`, `Contract needed`, `Blocking behavior`, and `Integration validation`.
 
-- Runtime used: CPython 3.11.15 via `uv run python`.
-- Result: passed.
-- Validated: 7 schemas, 16 command examples, 14 binding examples, 7 delivery examples, 6 generic event examples, 7 provider event examples, 9 callback rejection examples, 6 materialization examples.
-- The same validator fails under bare `python3` because this worktree's default `python3` is Python 3.9.6.
+The local contract package validation passed:
 
-### Acceptance Criteria Review
-
-Most stories use testable Given/When/Then acceptance criteria with explicit fail-closed, idempotency, redaction, and diagnostic behavior. Error-path coverage is strong in binding validation, BMAD mount validation, provider command parsing, workflow event ingress, duplicate handling, materialization, gate decisions, and reconciliation.
+```text
+Workflow Commander 1.3a/1.3b/1.3c contract validation passed
+Validated 7 schemas
+Validated 16 command examples
+Validated 14 binding examples
+Validated 7 delivery examples
+Validated 6 generic event examples
+Validated 7 provider event examples
+Validated 9 callback rejection examples
+Validated 6 materialization examples
+Validated isolated local package without parent workspace traversal
+```
 
 ### Critical Violations
 
-None found in epic/story structure. No epic is merely a technical milestone, and no direct future Hermes story dependency was found.
+1. **Implementation tracker is stale and does not match the current epics.**
+   - Evidence: `_bmad-output/planning-artifacts/epics.md` defines 30 current Hermes-owned story headings, but `_bmad-output/implementation-artifacts/sprint-status.yaml` tracks 22 older/composite story keys generated on 2026-07-09.
+   - Examples: current Stories 2.1a, 2.1b, and 2.1c are collapsed into `2-1-create-and-validate-project-bindings`; current Stories 3.6d and 3.6e are missing; current Stories 5.2b-5.2e and 5.3a-5.3c are represented by older/composite keys.
+   - Impact: non-interactive story creation or implementation automation would use the wrong queue and could skip or merge stories that the current epics deliberately split.
+   - Recommendation: regenerate or update `sprint-status.yaml` from the current `epics.md` before starting implementation automation.
 
 ### Major Issues
 
-1. **Architecture and contract package disagree about example fixture reality.** The architecture says no example fixture files were observed under local `examples/`, but the contract package currently contains and validates 65 JSON examples. This stale architecture statement can cause implementation agents to keep stories blocked incorrectly or ignore available fixtures.
-
-2. **NFR traceability numbering is inconsistent.** The PRD has 16 unlabeled NFR bullets, while the epics document contains a local NFR coverage map numbered NFR-1 through NFR-17. In particular, the epics map includes an NFR-15 for dependency records/bounded ownership that is not directly numbered in the PRD extraction, then maps provider-generic surfaces to NFR-16 and isolated handoffs to NFR-17. This should be reconciled before implementation stories rely on NFR ids.
-
-3. **Story 2.3 risks forward-coupling Epic 2 to provider adapter behavior.** Story 2.3 requires proving provider adapter calls receive the Bound Project Cwd, but provider control/adapters are primarily introduced in Epic 3. This is implementable only if Story 2.3 explicitly creates a minimal provider-action port/test double, or if provider-specific cwd acceptance criteria move to Epic 3.
-
-4. **Story 5.3a is broad relative to its acceptance criteria.** It covers diagnostic taxonomy, severity, affected-resource references, redacted evidence storage, next-action owner, recovery-option reference, and persistence rules across many diagnostic families, but has only two broad acceptance criteria. Add an explicit diagnostic family matrix or split the story if one implementation cycle cannot cover configuration, decision, external-delay, implementation-defect, duplicate-event, outbox, stale-PR, and unresolved-gate diagnostics.
-
-5. **Contract validator command is underspecified for this repo's Python floor.** The contract README says to run `python3 .../validate_contracts.py`, but bare `python3` is 3.9.6 in this worktree and fails before validation. The project requires Python `>=3.11,<3.14`, and `uv run python ...` passes. The validation instruction should use the repo's Python resolution path.
+1. **Provider-dependent story completion still depends on unproven external Archon producer output.**
+   - Evidence: the isolated handoff contract states that external Archon producer completion status is not proven and provider-dependent Hermes stories must keep Archon dependency records until compatible producer output is available and validated.
+   - Impact: local fixtures are valid and useful for consumer-side development, but provider-dependent stories cannot be marked complete from fixtures alone.
+   - Recommendation: before marking provider-dependent Hermes stories done, validate against compatible Archon producer output or record those stories as blocked on the matching Archon stories.
 
 ### Minor Concerns
 
-1. **No UX artifact exists.** This is acceptable for the explicitly headless v1 scope, but command/API/notification interaction details must stay covered by story acceptance criteria.
+1. **Story 2.3 includes one future-story validation statement in its acceptance criteria.**
+   - Evidence: one Story 2.3 criterion says Story 3.4a must reuse the Story 2.3 cwd guard when the real provider adapter exists.
+   - Impact: the Story 2.3 blocking behavior correctly says Archon adapter cwd evidence remains in Story 3.4a and must not block Story 2.3, so this does not break the story. It is still cleaner as an integration note or Story 3.4a acceptance criterion.
+   - Recommendation: optionally move that criterion to Story 3.4a or leave it as a non-blocking integration note.
 
-2. **External producer completion status is not locally proven.** The local contract package validates, but the readiness artifacts do not include status evidence that the referenced Archon producer stories are implemented. Hermes stories can be planned against fixtures, but completion of provider-dependent stories remains externally gated.
-
-### Best Practices Compliance Checklist
+### Best Practices Checklist
 
 | Check | Result |
 | --- | --- |
 | Epics deliver user value | Pass |
-| Epics can progress sequentially without future Hermes epic dependencies | Pass with Story 2.3 caveat |
-| Stories appropriately sized | Mostly pass; Story 5.3a needs tightening |
-| No forward Hermes dependencies | Pass |
-| Data/storage creation appears tied to first use | Pass |
-| Clear acceptance criteria | Mostly pass; Story 5.3a needs a diagnostic matrix |
-| FR traceability maintained | Pass |
-| NFR traceability maintained | Fails until numbering is reconciled |
+| Epics avoid pure technical milestones | Pass |
+| Hermes-owned stories avoid forward dependencies | Pass |
+| Stories are sized around one implementation responsibility | Pass |
+| Acceptance criteria are present and testable | Pass |
+| Traceability to FRs is maintained | Pass |
+| Local contract fixtures validate | Pass |
+| Implementation tracking matches current stories | Fail |
 
 ## Summary and Recommendations
 
 ### Overall Readiness Status
 
-**NOT READY**
+NOT READY.
 
-Implementation should not proceed as a broad readiness handoff until the blocking artifact/fact gap and traceability inconsistencies are corrected. FR coverage is strong, and the local contract package validates through the repo's Python resolution path, but the readiness package is not internally consistent enough to be considered implementation-ready.
+The core planning artifacts are substantially aligned: PRD, architecture, epics, and UX are present; PRD FR coverage is 100%; UX and architecture agree on the headless v1 boundary; and the local Workflow Commander contract package validates successfully.
+
+Implementation should not start through the current automation queue because the implementation tracking artifact is stale and does not match the current epics. Provider-dependent story completion also remains constrained by unproven external Archon producer output.
 
 ### Issue Counts
 
 - Critical: 1
-- Major: 5
-- Minor: 2
-- Duplicate whole/sharded artifact findings: 0
-- Total issues requiring attention: 8
+- Major: 1
+- Minor: 1
+- Warnings: 0
 
 ### Critical Issues Requiring Immediate Action
 
-1. **Missing configured persistent fact:** `_bmad-output/planning-artifacts/cross-project-isolated-handoff-contract.md` was configured as foundational workflow context but is absent from the worktree. Under the automation contract, missing required facts make the result NOT READY.
+1. Regenerate or update `_bmad-output/implementation-artifacts/sprint-status.yaml` from the current `_bmad-output/planning-artifacts/epics.md`.
+   - Current epics define 30 stories.
+   - Current sprint status tracks 22 older/composite story keys.
+   - Automation that uses the stale sprint status could skip split stories or create implementation work from obsolete names.
 
-### Major Issues
+### Major Issues Requiring Resolution Before Completion Claims
 
-1. Architecture and contract package disagree about example fixture reality: architecture says no examples were observed, while the contract package contains and validates 65 examples.
-2. NFR traceability numbering is inconsistent: PRD extraction yields 16 NFRs, while epics map NFR-1 through NFR-17.
-3. Story 2.3 risks forward-coupling Epic 2 to provider adapter behavior unless it explicitly owns a minimal provider-action port/test double or moves provider-specific cwd criteria to Epic 3.
-4. Story 5.3a is too broad relative to its two acceptance criteria and needs a diagnostic family matrix or a split.
-5. Contract validator instructions are brittle: bare `python3` fails in this worktree, while `uv run python` passes with Python 3.11.15.
-
-### Minor Issues
-
-1. No UX artifact exists. This is acceptable for v1's headless scope, but command/API/notification interaction expectations must remain explicit in stories.
-2. External Archon producer completion status is not locally proven. Hermes stories can plan against validated fixtures, but provider-dependent story completion remains externally gated.
-
-### Positive Readiness Evidence
-
-- Required whole PRD, architecture, and epics artifacts are present.
-- No whole/sharded duplicates were found.
-- PRD FR coverage is complete: 17 of 17 FRs are explicitly mapped to stories.
-- Epics are user-value oriented and not merely technical milestones.
-- Hermes-to-Hermes story dependencies are ordered backward; no direct future Hermes story dependency was found.
-- Contract validation passed through `uv run python _bmad-output/planning-artifacts/contracts/workflow-commander/validate_contracts.py`.
+1. Validate provider-dependent Hermes stories against compatible Archon producer output before marking those stories done.
+   - Local schemas and fixtures validate.
+   - External Archon producer completion remains unproven in this local handoff.
+   - Provider-dependent stories must retain their Archon dependency records until compatible producer output is available and validated.
 
 ### Recommended Next Steps
 
-1. Restore or regenerate `_bmad-output/planning-artifacts/cross-project-isolated-handoff-contract.md`, or remove it from workflow persistent facts if it is no longer required.
-2. Update `architecture.md` to reflect the current validated contract package and fixture inventory.
-3. Reconcile PRD and epics NFR numbering, then update the NFR coverage map.
-4. Tighten Story 2.3 around provider cwd validation ownership.
-5. Split or strengthen Story 5.3a with a concrete diagnostic family acceptance matrix.
-6. Update contract validation instructions to use `uv run python` or otherwise require Python 3.11+ explicitly.
+1. Regenerate `sprint-status.yaml` so it contains the current 30 story keys from `epics.md`, including split stories 2.1a-2.1c, 3.6d-3.6e, 5.2b-5.2e, and 5.3a-5.3c.
+2. Decide whether to move the future-story validation sentence from Story 2.3 into Story 3.4a or leave it as a non-blocking integration note.
+3. Keep provider-dependent stories blocked from completion until compatible Archon producer output has been validated against the local contract package.
 
 ### Final Note
 
-This assessment identified 8 issues across artifact completeness, traceability, story quality, validation reproducibility, UX documentation, and external dependency evidence. Address the critical issue and major traceability/artifact inconsistencies before treating the Hermes Workflow Commander handoff as implementation-ready.
+This assessment identified 3 issues across 3 severity categories. Address the critical tracking mismatch before proceeding to implementation automation. The planning documents themselves are close, but the handoff is not ready while the implementation queue points at stale story structure.
 
-Assessor: Codex running `bmad-check-implementation-readiness`
-Completed: 2026-07-12
+Assessor: Codex using `bmad-check-implementation-readiness` in non-interactive automation mode.
