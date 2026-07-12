@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workflow Commander — Correct Course Review</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: #0d1b2c;
+      --panel-2: #12243a;
+      --line: #28415f;
+      --text: #eaf2fb;
+      --muted: #9eb2c9;
+      --cyan: #4dd7e8;
+      --green: #62d69b;
+      --amber: #f6c55f;
+      --red: #ff7d8c;
+      --violet: #aa91ff;
+      --shadow: 0 20px 60px rgba(0, 0, 0, .35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(77, 215, 232, .12), transparent 32rem),
+        radial-gradient(circle at 92% 8%, rgba(170, 145, 255, .12), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 48px 0 80px;
+    }
+
+    .hero, .panel, .decision {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: linear-gradient(145deg, rgba(18, 36, 58, .94), rgba(9, 24, 41, .96));
+      box-shadow: var(--shadow);
+    }
+
+    .hero { padding: clamp(24px, 5vw, 52px); }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 850px;
+      font-size: clamp(36px, 6vw, 70px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+    }
+
+    .lede {
+      max-width: 820px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(17px, 2.2vw, 22px);
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(7, 17, 31, .55);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .badge.danger { border-color: rgba(255, 125, 140, .45); color: var(--red); }
+    .badge.warn { border-color: rgba(246, 197, 95, .45); color: var(--amber); }
+    .badge.ok { border-color: rgba(98, 214, 155, .45); color: var(--green); }
+
+    section { margin-top: 28px; }
+
+    .panel { padding: clamp(20px, 3.5vw, 34px); }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: clamp(23px, 3vw, 32px);
+      letter-spacing: -.025em;
+    }
+
+    h3 { margin: 0 0 8px; font-size: 18px; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+      gap: 14px;
+      margin-top: 20px;
+    }
+
+    .card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      background: rgba(7, 17, 31, .5);
+    }
+
+    .card .number {
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      margin-bottom: 12px;
+      border-radius: 9px;
+      background: rgba(77, 215, 232, .12);
+      color: var(--cyan);
+      font-weight: 900;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 12px;
+      color: var(--red);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .status::before {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+
+    .story-table {
+      display: grid;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .story-row {
+      display: grid;
+      grid-template-columns: minmax(90px, 120px) minmax(0, 1fr) minmax(160px, .65fr);
+      gap: 14px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(7, 17, 31, .45);
+    }
+
+    .story-id { color: var(--violet); font-weight: 850; }
+    .severity { color: var(--amber); font-size: 13px; font-weight: 800; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .step {
+      position: relative;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 15px;
+      background: rgba(7, 17, 31, .52);
+    }
+
+    .step strong { display: block; margin-bottom: 5px; color: var(--cyan); }
+    .step span { color: var(--muted); font-size: 13px; }
+
+    .callout {
+      margin-top: 18px;
+      border-left: 4px solid var(--amber);
+      border-radius: 10px;
+      padding: 15px 17px;
+      background: rgba(246, 197, 95, .08);
+      color: #f9e3ae;
+    }
+
+    ul { margin: 14px 0 0; padding-left: 22px; }
+    li + li { margin-top: 7px; }
+
+    .decision {
+      margin-top: 32px;
+      padding: clamp(22px, 4vw, 38px);
+      border-color: rgba(77, 215, 232, .5);
+    }
+
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    label.choice {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      background: rgba(7, 17, 31, .48);
+      cursor: pointer;
+    }
+
+    label.choice:has(input:checked) {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 2px rgba(77, 215, 232, .13);
+    }
+
+    input[type="radio"] { margin-top: 4px; accent-color: var(--cyan); }
+    .choice strong { display: block; }
+    .choice span { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; }
+
+    textarea {
+      width: 100%;
+      min-height: 110px;
+      margin-top: 14px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 13px;
+      background: #07111f;
+      color: var(--text);
+      font: inherit;
+    }
+
+    button {
+      margin-top: 14px;
+      border: 0;
+      border-radius: 12px;
+      padding: 13px 18px;
+      background: linear-gradient(135deg, var(--cyan), #7a9dff);
+      color: #04111c;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    button:hover { filter: brightness(1.08); }
+    .send-note { margin-top: 10px; color: var(--muted); font-size: 12px; }
+
+    code {
+      overflow-wrap: anywhere;
+      color: #b8eaf1;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .92em;
+    }
+
+    @media (max-width: 760px) {
+      main { width: min(100% - 20px, 1180px); padding-top: 18px; }
+      .story-row { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr 1fr; }
+      .choice-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 460px) {
+      .flow { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <p class="eyebrow">Hermes Agent · Correct Course</p>
+      <h1>Close the evidence gaps before implementation begins.</h1>
+      <p class="lede">The product plan is coherent. The remaining work is a focused correction: strengthen seven stories, make two contract surfaces real, and require external Archon compatibility evidence before provider-dependent completion.</p>
+      <div class="badges">
+        <span class="badge danger">3 critical evidence blockers</span>
+        <span class="badge warn">6 major story gaps</span>
+        <span class="badge warn">1 minor failure-path gap</span>
+        <span class="badge ok">17 / 17 FRs covered</span>
+        <span class="badge ok">No epic replan</span>
+      </div>
+    </header>
+
+    <section class="panel">
+      <p class="eyebrow">Decision frame</p>
+      <h2>What changes—and what stays fixed</h2>
+      <div class="grid">
+        <article class="card">
+          <span class="number">✓</span>
+          <h3>Preserve</h3>
+          <p class="muted">PRD scope, headless UX, architecture paradigm, epic order, story IDs, dependency direction, and backlog state.</p>
+        </article>
+        <article class="card">
+          <span class="number">Δ</span>
+          <h3>Correct</h3>
+          <p class="muted">Seven acceptance-criteria sections, gate and diagnostic contracts, fixtures, validation, inventory truth, and stale sprint metadata.</p>
+        </article>
+        <article class="card">
+          <span class="number">!</span>
+          <h3>Keep blocked</h3>
+          <p class="muted">Provider-dependent completion until real, redacted Archon output validates against the shared contracts.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Unresolved from the prior assessment</p>
+      <h2>Three blockers remain open</h2>
+      <div class="grid">
+        <article class="card">
+          <span class="number">1</span>
+          <h3>External producer evidence</h3>
+          <p class="muted">No captured Archon binding, command, event, or delivery/outbox runtime output is present.</p>
+          <span class="status">Unresolved</span>
+        </article>
+        <article class="card">
+          <span class="number">2</span>
+          <h3>Gate decision evidence</h3>
+          <p class="muted">The schema exists, but the validator does not require it and no behavior fixtures exist.</p>
+          <span class="status">Unresolved</span>
+        </article>
+        <article class="card">
+          <span class="number">3</span>
+          <h3>Operational diagnostics</h3>
+          <p class="muted">The schema exists, but it lacks story-required fields, fixtures, and validator coverage.</p>
+          <span class="status">Unresolved</span>
+        </article>
+      </div>
+      <div class="callout">The current validator reports 7 schemas even though 9 schema files exist. A green validator run proves only the families it explicitly requires.</div>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Backlog correction</p>
+      <h2>Seven story edits</h2>
+      <div class="story-table">
+        <div class="story-row"><div class="story-id">Story 2.1c</div><div>Test binding repair, revalidation, and safe re-enable.</div><div class="severity">Major · lifecycle completeness</div></div>
+        <div class="story-row"><div class="story-id">Story 2.5</div><div>Test initial materialization, unchanged reruns, provenance, and Hermes runtime authority.</div><div class="severity">Major · FR-5 invariants</div></div>
+        <div class="story-row"><div class="story-id">Story 4.1</div><div>Prove story creation through review has no Hermes-created intermediate pause.</div><div class="severity">Major · FR-12 behavior</div></div>
+        <div class="story-row"><div class="story-id">Story 4.3</div><div>Prove replayed decisions create one transition and at most one provider command.</div><div class="severity">Major · NFR-4 safety</div></div>
+        <div class="story-row"><div class="story-id">Story 5.2a</div><div>Cover missing, malformed, unchanged, repeated, and deterministic repair cases.</div><div class="severity">Major · drift completeness</div></div>
+        <div class="story-row"><div class="story-id">Story 5.2c</div><div>Cover provider progress during gateway downtime and safe later reconciliation.</div><div class="severity">Major · NFR-2 recovery</div></div>
+        <div class="story-row"><div class="story-id">Story 5.3c</div><div>Keep diagnostics active after failed recovery and append redacted immutable history.</div><div class="severity">Minor · failure path</div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Shared contract correction</p>
+      <h2>Make the missing evidence enforceable</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>Gate decision cases</h3>
+          <ul class="muted">
+            <li>Approval and rejection records</li>
+            <li>Every recovery route</li>
+            <li>Delayed pending state</li>
+            <li>Replay and provider-command failure</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>Diagnostic records</h3>
+          <ul class="muted">
+            <li>All eight diagnostic families</li>
+            <li>Owner, provenance, state, and recovery</li>
+            <li>Redaction before persistence</li>
+            <li>Successful and failed resolution history</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>Validator truth</h3>
+          <ul class="muted">
+            <li>Require every canonical schema</li>
+            <li>Print both new fixture counts</li>
+            <li>Check replay and immutable history</li>
+            <li>Add explicit external evidence mode</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Execution order</p>
+      <h2>Direct adjustment, then evidence handoff</h2>
+      <div class="flow">
+        <div class="step"><strong>1 · Backlog</strong><span>Apply seven approved story criteria edits.</span></div>
+        <div class="step"><strong>2 · Contracts</strong><span>Harden schemas, add fixtures, extend validation.</span></div>
+        <div class="step"><strong>3 · Producer</strong><span>Capture and validate redacted Archon runtime output.</span></div>
+        <div class="step"><strong>4 · Recheck</strong><span>Regenerate sprint metadata and rerun readiness.</span></div>
+      </div>
+      <div class="callout">No production feature implementation is authorized by this proposal. Approval authorizes planning and contract correction plus the external evidence handoff.</div>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Risks</p>
+      <h2>What could still block readiness</h2>
+      <ul>
+        <li>Archon output may reveal a real producer/consumer incompatibility that requires a separate cross-project decision.</li>
+        <li>Adding examples without strengthening schema invariants could produce another false-green validator run.</li>
+        <li>Updating story text without regenerating the stale sprint metadata could route story creation into the wrong workspace.</li>
+        <li>Local fixtures must never be relabeled as captured producer evidence.</li>
+      </ul>
+    </section>
+
+    <section class="decision">
+      <p class="eyebrow">Correct Course · Step 4 review</p>
+      <h2>Continue with this proposal or request edits?</h2>
+      <p class="muted">Your selection will be sent back to the agent. Approval here advances to the workflow's explicit final approval step; it does not apply changes yet.</p>
+      <form id="review-form">
+        <div class="choice-grid">
+          <label class="choice">
+            <input type="radio" name="decision" value="continue" checked>
+            <span><strong>Continue [C]</strong><span>The batch proposal accurately reflects the desired correction.</span></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="decision" value="edit">
+            <span><strong>Edit [E]</strong><span>Revise the proposal before the final approval step.</span></span>
+          </label>
+        </div>
+        <textarea id="feedback" aria-label="Requested edits" placeholder="If you chose Edit, describe the exact changes you want. You can also annotate any text directly in this review surface."></textarea>
+        <button type="submit">Send decision to agent</button>
+        <p class="send-note">This queues and immediately sends a precise review decision through Lavish.</p>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('review-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      const decision = new FormData(event.currentTarget).get('decision');
+      const feedback = document.getElementById('feedback').value.trim();
+      let prompt;
+      if (decision === 'continue') {
+        prompt = 'C — Continue. The batch Sprint Change Proposal is accurate. Advance to the explicit final approval step.';
+      } else {
+        prompt = 'E — Edit the Sprint Change Proposal before continuing. Requested changes: ' + (feedback || 'Review my annotations in the Lavish artifact.');
+      }
+      window.lavish.queuePrompt(prompt, {
+        tag: 'correct-course-review',
+        text: decision === 'continue' ? 'Continue' : 'Edit',
+        selector: '#review-form'
+      });
+      window.lavish.sendQueuedPrompts();
+    });
+  </script>
+</body>
+</html>
