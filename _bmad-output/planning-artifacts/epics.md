@@ -2,7 +2,7 @@
 title: hermes-agent Epics Handoff - Hermes Agent Workflow Commander
 status: handoff
 created: '2026-07-11'
-updated: '2026-07-11'
+updated: '2026-07-12'
 local_contract_package: contracts/workflow-commander/
 story_ownership_note: >
   Story numbering is kept identical to the parent workspace story ids so cross-project dependency records remain stable.
@@ -46,9 +46,19 @@ Schema files are present under `contracts/workflow-commander/schemas/`.
 Required example fixture families remain required before contract-gated stories can complete.
 No story may claim example fixture readiness unless the matching files exist under `contracts/workflow-commander/examples/` and pass compatibility validation.
 
+## Provider Completion Gate
+
+The local contract package is Hermes-side readiness evidence, not proof that external Archon producer output is compatible.
+Any Hermes story that depends on Archon producer output must keep its dependency record and must not be marked `done` from local fixtures alone.
+Completion for those provider-dependent stories requires compatible external Archon producer output for every consumed command, provider binding, delivery-status, and workflow-event family, validated against the local `contracts/workflow-commander/` package.
+Until that external evidence is available, Hermes implementation may proceed against local fixtures where the story allows it, but final done claims remain blocked.
+
+Current external evidence status: no captured external Archon producer runtime output is present in this isolated handoff. Local contract validation is sufficient for Hermes-side implementation where a story allows fixture-driven work, but provider-dependent completion remains blocked until captured Archon producer output for provider binding lifecycle, workflow command, workflow event, and delivery/outbox status families is supplied and validated against the local package.
+
 ## Local NFR Coverage Map
 
 This map keeps the parent NFR traceability local to the Hermes handoff.
+The NFR ids match the numbered PRD NFRs.
 It lists Hermes-owned story coverage and the validation evidence downstream implementation agents must preserve.
 Parent shared contract stories and Archon producer stories remain dependencies, not Hermes implementation work.
 
@@ -174,16 +184,16 @@ I want Hermes to run BMAD and provider actions from the Project Binding's explic
 so that planning artifacts and workflow execution always belong to the intended local project.
 
 Requirements Covered: FR-3.
-Implementation Scope: Hermes workflow-action cwd guard and audit capture.
-Depends on: hermes-agent Story 2.1c and parent Story 1.3a.
-Contract needed: Bound Project Cwd authority rule, provider adapter cwd expectation when applicable, workflow action audit record, and provider command cwd evidence.
-Blocking behavior: Cwd enforcement cannot be completed until Hermes proves BMAD actions and provider adapter calls receive the selected Project Binding cwd.
-Integration validation: Adapter tests prove BMAD actions and provider calls use the Bound Project Cwd and reject missing or invalid cwd before external workflow actions run.
+Implementation Scope: Hermes workflow-action cwd guard, audit capture, BMAD invocation cwd, and a minimal provider-action cwd port/test double used only to prove cwd propagation through the generic provider-action boundary.
+Depends on: hermes-agent Story 2.1c.
+Contract needed: Bound Project Cwd authority rule, BMAD execution cwd, workflow action audit record, and minimal provider-action cwd propagation interface for tests.
+Blocking behavior: Cwd enforcement can be completed when Hermes proves BMAD actions and the minimal provider-action test double receive the selected Project Binding cwd. Provider-specific adapter evidence is out of scope for Story 2.3.
+Integration validation: Cwd guard tests prove BMAD actions and test-double provider actions use the Bound Project Cwd and reject missing or invalid cwd before any external workflow action runs.
 
 Acceptance Criteria:
 
 - Given an enabled Project Binding with a valid Bound Project Cwd, when the user starts a BMAD planning workflow from Hermes, then Hermes runs the workflow with the Bound Project Cwd as the working directory and any BMAD artifacts produced through Hermes land under that project's configured `_bmad-output` location.
-- Given an enabled Project Binding with a valid Bound Project Cwd, when the user starts a workflow provider action from Hermes, then Hermes passes the Bound Project Cwd to the provider adapter when the provider requires cwd and records the cwd used for the action.
+- Given an enabled Project Binding with a valid Bound Project Cwd, when Hermes exercises the minimal provider-action cwd port, then Hermes passes the Bound Project Cwd to that port and records the cwd used for the action without requiring provider-specific adapter evidence in this story.
 - Given the selected project has no Bound Project Cwd, when the user attempts to start any BMAD or workflow provider action, then Hermes blocks the action and shows a diagnostic that identifies the missing cwd requirement.
 - Given a mounted BMAD skill is visible from a profile, when Hermes determines where a workflow action should run, then Hermes uses the active Project Binding cwd, not skill visibility, as the artifact placement and execution authority.
 - Given Hermes executes any project-bound workflow action, when the action completes, fails, or is cancelled, then Hermes persists an audit record containing the Project Binding id, profile identity, cwd, command or workflow name, started time, completed time if available, result state, and correlation id if available.
@@ -289,11 +299,12 @@ Implementation Scope: Hermes strict provider adapter for workflow start and stat
 Depends on: parent Story 1.3a, hermes-agent Story 2.1c, hermes-agent Story 2.3, hermes-agent Story 3.2, Archon Story 3.3a, and Archon Story 3.3b.
 Contract needed: Workflow command envelope, start result schema, status result schema, timeout shape, success shape, and error shape.
 Blocking behavior: Hermes start and status control cannot be completed until provider command examples are locally available and Hermes can fail closed on malformed or incompatible results.
-Integration validation: Hermes adapter tests parse provider `archon` start and status examples once present, invoke from the Bound Project Cwd, record stdout, stderr, exit code, timeout, correlation id, and update only allowed workflow reference or diagnostic state.
+Integration validation: Hermes adapter tests parse provider `archon` start and status examples once present, invoke the real provider adapter from the Bound Project Cwd, prove it uses the Story 2.3 cwd guard, record stdout, stderr, exit code, timeout, correlation id, and update only allowed workflow reference or diagnostic state.
 
 Acceptance Criteria:
 
 - Given a valid Project Binding and valid workflow provider binding, when the user starts a provider workflow run from Hermes, then Hermes invokes the selected provider adapter from the Bound Project Cwd and records stdout, stderr, exit code, timeout, correlation id, workflow name, workflow run reference, and parsed JSON result.
+- Given the selected provider adapter requires cwd, when Hermes invokes provider start or status commands, then Hermes reuses the Story 2.3 cwd guard and proves the real adapter runs from the Bound Project Cwd.
 - Given Hermes needs workflow status, when the user or reconciliation process requests status for a provider workflow run, then Hermes invokes the provider adapter status command and updates only the workflow reference or diagnostic state allowed by the parsed schema.
 - Given a provider start or status command returns malformed JSON, a schema-version mismatch, timeout, or unexpected exit code, when Hermes processes the result, then Hermes fails closed and does not update Project Work state as if the command succeeded.
 
@@ -639,15 +650,30 @@ I want Hermes to persist stable, source-linked diagnostics for orchestration pro
 so that failures remain auditable and safe to query.
 
 Requirements Covered: FR-17.
-Implementation Scope: Hermes diagnostic taxonomy, severity, affected-resource references, redacted evidence storage, next-action owner, recovery-option reference, and persistence rules.
+Implementation Scope: Hermes diagnostic taxonomy, severity, affected-resource references, redacted evidence storage, next-action owner, recovery-option reference, persistence rules, and diagnostic family matrix. Query formatting remains in Story 5.3b. Resolution history remains in Story 5.3c.
 Depends on: parent Story 1.3a, parent Story 1.3b, parent Story 1.3c, hermes-agent Story 2.1c, hermes-agent Story 2.3, hermes-agent Story 2.5, hermes-agent Story 3.2, hermes-agent Story 3.4a, hermes-agent Story 3.4b, hermes-agent Story 3.4c, hermes-agent Story 3.6e, hermes-agent Story 3.8, hermes-agent Story 4.1, hermes-agent Story 4.2, hermes-agent Story 4.3, hermes-agent Story 5.1, hermes-agent Story 5.2a, hermes-agent Story 5.2b, hermes-agent Story 5.2c, hermes-agent Story 5.2d, hermes-agent Story 5.2e, Archon Story 3.1, Archon Story 3.3a, Archon Story 3.3b, Archon Story 3.3c, Archon Story 3.3d, Archon Story 3.5, and Archon Story 3.7.
-Contract needed: Diagnostic category vocabulary, affected-resource reference, recovery option vocabulary, redaction rule, persistence schema, and provider diagnostic payload shape.
-Blocking behavior: Every required diagnostic family must have a stable, source-linked, secret-safe record.
+Contract needed: Diagnostic category vocabulary, diagnostic family matrix, affected-resource reference, recovery option vocabulary, redaction rule, persistence schema, and provider diagnostic payload shape.
+Blocking behavior: Every required diagnostic family in the matrix must have a stable, source-linked, secret-safe record.
 Integration validation: Diagnostic examples once present cover configuration, decision, external-delay, implementation-defect, duplicate-event, outbox, stale-PR, and unresolved-gate categories.
+
+Diagnostic Family Matrix:
+
+| Family | Required Sources | Next-Action Owner | Minimum Recovery Reference |
+| --- | --- | --- | --- |
+| configuration | Project Binding validation, Bound Project Cwd checks, BMAD mount checks, provider binding diagnostics | configuration action | repair binding, cwd, BMAD mount, or provider metadata |
+| decision | Pending, approved, rejected, or rerouted HILT Gate decisions | user action | approve, reject, rerun, resume, retry, or recovery route |
+| external-delay | Provider status unavailable, delayed delivery, gateway downtime, or reconciliation-pending evidence | external delay or provider action | retry status, inspect delivery state, or reconcile |
+| implementation-defect | Malformed provider JSON, schema mismatch, unexpected state, or contract incompatibility | implementation-agent action or provider action | inspect contract compatibility and command evidence |
+| duplicate-event | Duplicate event id or idempotency key evidence | Hermes automation | keep duplicate-safe receipt and avoid duplicate mutation |
+| outbox | Retrying, failed, duplicated, terminal-failure, or reconciliation-pending delivery status | provider action | inspect outbox status or reconcile without blocking workflow execution solely on delivery failure |
+| stale-PR | Stale, missing, or conflicting GitHub PR evidence | GitHub action or implementation-agent action | refresh PR reference, reconcile, or preserve completion conflict |
+| unresolved-gate | Missing, unresolved, rejected, or conflicting Done Verification Gate evidence | user action | review evidence and approve, reject, or route recovery |
 
 Acceptance Criteria:
 
-- Given Hermes detects a supported orchestration problem, when diagnostics are generated, then Hermes persists category, severity, affected references, redacted evidence, next-action owner, and recovery option.
+- Given Hermes detects a supported orchestration problem in any diagnostic family listed in the matrix, when diagnostics are generated, then Hermes persists category, family, severity, affected references, redacted evidence, next-action owner, recovery option, source provenance, timestamp, and state.
+- Given diagnostic evidence contains command output, workflow event payload fields, provider status, GitHub references, or gate evidence, when Hermes persists the diagnostic, then secrets and raw signatures are redacted before storage while preserving enough source-linked evidence for audit.
+- Given duplicate workflow event or outbox evidence is diagnostic-only, when Hermes persists the diagnostic, then it records idempotency or delivery evidence without duplicating Project Work Item, Phase Task, gate, comment, or Story Status History mutation.
 - Given evidence conflicts about completion, when Hermes generates diagnostics, then Hermes classifies unresolved completion evidence and does not silently mark work complete.
 
 ### Story 5.3b: Query Operational Diagnostics And Recovery Guidance

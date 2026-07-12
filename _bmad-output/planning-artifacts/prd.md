@@ -2,7 +2,7 @@
 title: hermes-agent Planning Handoff - Hermes Agent Workflow Commander
 status: handoff
 created: '2026-07-11'
-updated: '2026-07-11'
+updated: '2026-07-12'
 source: workflow-engine parent planning package materialized as local hermes-agent inputs
 ---
 
@@ -179,22 +179,23 @@ Diagnostics include recovery guidance and redact secrets.
 
 ## Non-Functional Requirements
 
-- Workflow events are delivery acceleration, not the sole source of truth.
-- Reconciliation handles event loss, duplicate delivery, gateway downtime, provider command failure, and manual PR merge.
-- Materialization is idempotent.
-- Gate decisions are replay-safe and auditable.
-- Event ingress fails closed on signature, schema, replay, binding, provider, profile, idempotency, or authorization failure.
-- Workflow event secrets are scoped to the correct profile.
-- Workflow actions cannot run outside the selected Bound Project Cwd.
-- Secrets are redacted from command logs, event logs, diagnostics, and status-history results.
-- Workflow commands, workflow events, reconciliation actions, gate decisions, and user-visible state transitions are persisted.
-- Story Status History explains why a story changed state.
-- Project-work changes retain source provenance.
-- Next actions use human-facing workflow language.
-- Done Verification approval remains separate from GitHub PR merge state.
-- Blocking issues return recovery options instead of raw stack traces alone.
-- Provider integration surfaces remain generic.
-- Isolated local handoffs are complete enough for subproject implementation agents.
+- **NFR-1:** Workflow events are delivery acceleration, not the sole source of truth.
+- **NFR-2:** Reconciliation handles event loss, duplicate delivery, gateway downtime, provider command failure, and manual PR merge.
+- **NFR-3:** Materialization is idempotent.
+- **NFR-4:** Gate decisions are replay-safe and auditable.
+- **NFR-5:** Event ingress fails closed on signature, schema, replay, binding, provider, profile, idempotency, or authorization failure.
+- **NFR-6:** Workflow event secrets are scoped to the correct profile.
+- **NFR-7:** Workflow actions cannot run outside the selected Bound Project Cwd.
+- **NFR-8:** Secrets are redacted from command logs, event logs, diagnostics, and status-history results.
+- **NFR-9:** Workflow commands, workflow events, reconciliation actions, gate decisions, and user-visible state transitions are persisted.
+- **NFR-10:** Story Status History explains why a story changed state.
+- **NFR-11:** Project-work changes retain source provenance.
+- **NFR-12:** Next actions use human-facing workflow language.
+- **NFR-13:** Done Verification approval remains separate from GitHub PR merge state.
+- **NFR-14:** Blocking issues return recovery options instead of raw stack traces alone.
+- **NFR-15:** Dependency records and handoff validation preserve bounded ownership between Hermes, BMAD, workflow providers, GitHub, and parent shared contracts.
+- **NFR-16:** Provider integration surfaces remain generic.
+- **NFR-17:** Isolated local handoffs are complete enough for subproject implementation agents.
 
 ## Non-Goals
 
