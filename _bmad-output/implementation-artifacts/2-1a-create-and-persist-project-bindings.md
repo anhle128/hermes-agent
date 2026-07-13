@@ -194,6 +194,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   31. Added bounded lock-error retry to _init_cached_connection schema repair path, matching _init_connection_with_retry discipline (Finding 31)
   32. Changed cross-process race tests to use os.environ.get("HERMES_HOME", "") with skipif guard for portability; added 2 new parametrized test cases for whitespace/empty-string provider identity (Finding 32)
 - **Test results: 75/75 passing** (73 pass + 2 pass with HERMES_HOME set) after sixth fix pass addressing all 4 round-6 review findings.
+- Seventh fix pass (round 7) changes:
+  27. Added `_EXPECTED_UNIQUE_INDEXES` frozenset and index verification to `_verify_complete_schema()` — checks PRAGMA index_list for all 4 expected unique indexes; cached connection repair path now fires when indexes are missing, not just when columns are missing (Finding 33)
+  28. Added `math.isfinite()` check to `_require_json_compatible()` — rejects non-finite floats (inf, -inf, nan) with TypeError before reaching json.dumps; added early return for bool to prevent isinstance(bool, int) false path (Finding 34)
+  29. Rewrote cross-process race tests to create a temp HERMES_HOME dir instead of requiring it from the parent process — removed both `@pytest.mark.skipif` decorators; tests now always run (Finding 35)
+- **Test results: 82/82 passing** after seventh fix pass addressing all 3 round-7 review findings.
 
 ### File List
 
@@ -237,6 +242,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Provider identity and JSON contract validation remains lossy and incomplete [hermes_project_work/bindings.py:389]
 - [x] [Review][Patch] Cached schema initialization remains incomplete and lacks warm-path retry [hermes_project_work/bindings.py:229]
 - [x] [Review][Patch] Green TEA suite still provides false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:65]
-- [ ] [Review][Patch] Cached schema initialization still accepts incomplete schemas and does not perform additive repair [hermes_project_work/bindings.py:229]
-- [ ] [Review][Patch] Provider identity and JSON validation still admits malformed or type-losing values [hermes_project_work/bindings.py:402]
-- [ ] [Review][Patch] TEA evidence still skips race tests and does not prove rollback/schema relationships [tests/project_work/test_bindings.py:714]
+- [x] [Review][Patch] Cached schema initialization still accepts incomplete schemas and does not perform additive repair [hermes_project_work/bindings.py:229]
+- [x] [Review][Patch] Provider identity and JSON validation still admits malformed or type-losing values [hermes_project_work/bindings.py:402]
+- [x] [Review][Patch] TEA evidence still skips race tests and does not prove rollback/schema relationships [tests/project_work/test_bindings.py:714]

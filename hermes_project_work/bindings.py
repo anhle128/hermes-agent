@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import secrets
 import sqlite3
@@ -226,13 +227,30 @@ _EXPECTED_COLUMNS = frozenset({
 })
 
 
+_EXPECTED_UNIQUE_INDEXES = frozenset({
+    "uq_pb_profile_cwd",
+    "uq_pb_profile_github_key",
+    "uq_pb_profile_bmad_dir",
+    "uq_pb_profile_provider",
+})
+
+
 def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
-    """Return True iff every expected column exists on project_bindings."""
+    """Return True iff every expected column and unique index exists.
+
+    Column-only verification would miss externally-dropped indexes — the
+    uniqueness constraints would silently vanish while the table appeared
+    healthy.
+    """
     rows = conn.execute("PRAGMA table_info(project_bindings)").fetchall()
     if not rows:
         return False
     present = {row["name"] for row in rows}
-    return _EXPECTED_COLUMNS.issubset(present)
+    if not _EXPECTED_COLUMNS.issubset(present):
+        return False
+    indexes = conn.execute("PRAGMA index_list(project_bindings)").fetchall()
+    present_indexes = {row["name"] for row in indexes}
+    return _EXPECTED_UNIQUE_INDEXES.issubset(present_indexes)
 
 
 def _init_cached_connection(conn: sqlite3.Connection) -> None:
@@ -400,17 +418,29 @@ _JSON_NATIVE_TYPES = (dict, list, str, int, float, bool, type(None))
 
 
 def _require_json_compatible(value: object, field_name: str, *, path: str = "") -> None:
-    """Recursively reject values that are not JSON-native types.
+    """Recursively reject values that are not JSON-native types or valid JSON values.
 
-    Catches custom objects, bytes, sets, tuples-as-non-list, etc. before
-    they reach ``json.dumps`` — where the error message would be less
-    specific about *which* nested value was incompatible.
+    Catches custom objects, bytes, sets, tuples-as-non-list, and non-finite
+    floats (inf, nan) before they reach ``json.dumps`` — where the error
+    message would be less specific about *which* nested value was
+    incompatible.  Non-finite floats are valid Python ``float`` instances but
+    are not representable in JSON (``json.dumps(allow_nan=False)`` rejects
+    them); catching them here gives a specific path rather than a generic
+    serialization error.
     """
+    if isinstance(value, bool):
+        return
     if not isinstance(value, _JSON_NATIVE_TYPES):
         loc = f"{field_name}{path}"
         raise TypeError(
             f"{loc} contains non-JSON-compatible type "
             f"{type(value).__name__}"
+        )
+    if isinstance(value, float) and not math.isfinite(value):
+        loc = f"{field_name}{path}"
+        raise TypeError(
+            f"{loc} contains non-finite float {value!r} "
+            f"(JSON does not support inf/nan)"
         )
     if isinstance(value, dict):
         for k, v in value.items():

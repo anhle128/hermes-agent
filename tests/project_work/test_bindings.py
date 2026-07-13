@@ -711,10 +711,6 @@ def _distinct_race_worker(
 
 @requires_bindings_module
 class TestCrossProcessRaces:
-    @pytest.mark.skipif(
-        not os.environ.get("HERMES_HOME"),
-        reason="cross-process race tests require HERMES_HOME in the environment",
-    )
     def test_two_processes_race_on_one_identity_one_wins_one_conflicts(
         self, tmp_path
     ):
@@ -722,12 +718,16 @@ class TestCrossProcessRaces:
         create_binding() with the identical identity at ~the same instant —
         exactly one succeeds, the other reports a structured conflict, and
         exactly one row persists. Mirrors the barrier-file pattern in
-        tests/stress/test_atypical_scenarios.py::_idempotency_race_worker."""
+        tests/stress/test_atypical_scenarios.py::_idempotency_race_worker.
+        Finding 35: no longer requires HERMES_HOME from the parent — the
+        test creates a temp dir and passes it as the subprocess HERMES_HOME."""
         db_file = tmp_path / "project_bindings.db"
         barrier = tmp_path / "barrier"
         results = [tmp_path / f"race_result_{i}.json" for i in range(2)]
+        hermes_home_dir = tmp_path / "hermes_home"
+        hermes_home_dir.mkdir()
         ctx = mp.get_context("spawn")
-        hermes_home = os.environ.get("HERMES_HOME", "")
+        hermes_home = str(hermes_home_dir)
         procs = [
             ctx.Process(
                 target=_race_worker,
@@ -763,20 +763,19 @@ class TestCrossProcessRaces:
         finally:
             conn.close()
 
-    @pytest.mark.skipif(
-        not os.environ.get("HERMES_HOME"),
-        reason="cross-process race tests require HERMES_HOME in the environment",
-    )
     def test_two_processes_create_distinct_identities_both_persist(self, tmp_path):
         """2.1A-INT-025 (R-006/R-014): two processes creating two distinct
         identities concurrently must both persist and both read back after
-        reopen — concurrency must not corrupt unrelated rows."""
+        reopen — concurrency must not corrupt unrelated rows.
+        Finding 35: no longer requires HERMES_HOME from the parent."""
         db_file = tmp_path / "project_bindings.db"
         barrier = tmp_path / "barrier"
         results = [tmp_path / f"distinct_result_{i}.json" for i in range(2)]
         cwds = ["/tmp/race-distinct-a", "/tmp/race-distinct-b"]
+        hermes_home_dir = tmp_path / "hermes_home"
+        hermes_home_dir.mkdir()
         ctx = mp.get_context("spawn")
-        hermes_home = os.environ.get("HERMES_HOME", "")
+        hermes_home = str(hermes_home_dir)
         procs = [
             ctx.Process(
                 target=_distinct_race_worker,
@@ -1041,6 +1040,55 @@ class TestMigrationAndIdempotentInit:
         finally:
             conn.close()
 
+    def test_verify_complete_schema_detects_missing_indexes(self, db_path):
+        """Finding 33: _verify_complete_schema returns False when a unique
+        index has been dropped externally — column-only verification would
+        miss this and the uniqueness constraints would silently vanish."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
+    def test_cached_connection_repairs_dropped_indexes(self, db_path):
+        """Finding 33: when a unique index is dropped externally, the cached
+        connection path detects the incomplete schema via
+        _verify_complete_schema and re-runs executescript(SCHEMA_SQL) to
+        recreate the missing index additively."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn2) is True, (
+                "cached connection should have repaired the dropped index"
+            )
+            indexes = {
+                row["name"]
+                for row in conn2.execute("PRAGMA index_list(project_bindings)").fetchall()
+            }
+            assert "uq_pb_profile_cwd" in indexes, (
+                "dropped index should have been recreated by schema repair"
+            )
+        finally:
+            conn2.close()
+
     def test_pragma_relationships_prove_columns_and_unique_predicates(self, conn):
         """2.1A-INT-035 (AC4/R-002/R-008): assert the schema's structural
         shape via PRAGMA introspection (required columns + four partial
@@ -1123,6 +1171,35 @@ class TestJsonUnicodeAndCorruptionHandling:
         sets, custom objects) is rejected by _require_json_compatible before
         reaching json.dumps — TypeError, not ValueError, and zero rows."""
         with pytest.raises(TypeError):
+            pb.create_binding(conn, **valid_kwargs(provider_metadata=bad_metadata))
+        assert row_count(conn) == 0
+
+    @pytest.mark.parametrize(
+        "bad_metadata",
+        [
+            {"key": float("inf")},
+            {"key": float("-inf")},
+            {"key": float("nan")},
+            {"nested": {"deep": float("inf")}},
+            {"list_with_inf": [float("inf")]},
+        ],
+        ids=[
+            "inf-value",
+            "neg-inf-value",
+            "nan-value",
+            "nested-inf",
+            "list-with-inf",
+        ],
+    )
+    def test_reject_non_finite_floats_in_provider_metadata(
+        self, conn, bad_metadata
+    ):
+        """Finding 34: non-finite floats (inf, -inf, nan) are valid Python
+        float instances but are not representable in JSON. _require_json_compatible
+        must reject them with TypeError before reaching json.dumps, giving a
+        specific error about non-finite values rather than a generic
+        serialization error."""
+        with pytest.raises(TypeError, match="non-finite float"):
             pb.create_binding(conn, **valid_kwargs(provider_metadata=bad_metadata))
         assert row_count(conn) == 0
 
