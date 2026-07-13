@@ -218,3 +218,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Primary-key collisions still retry and raise instead of returning a machine-readable conflict [hermes_project_work/bindings.py:511]
 - [x] [Review][Patch] Per-path schema initialization cache is populated but never consulted [hermes_project_work/bindings.py:91]
 - [x] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
+- [ ] [Review][Patch] Provider identity and JSON fidelity still accept malformed or type-losing inputs [hermes_project_work/bindings.py:372]
+- [ ] [Review][Patch] Cached schema initialization does not verify or retry the complete schema [hermes_project_work/bindings.py:169]
+- [ ] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
