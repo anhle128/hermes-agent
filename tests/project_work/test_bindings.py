@@ -1129,6 +1129,27 @@ class TestMigrationAndIdempotentInit:
         finally:
             conn.close()
 
+    def test_verify_complete_schema_detects_missing_where_clause(self, db_path):
+        """Finding 43: _verify_complete_schema returns False when a partial
+        index exists by name with correct columns and unique flag but is
+        missing the WHERE clause — the uniqueness constraint would apply to
+        NULL values, breaking partial index semantics."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP INDEX IF EXISTS uq_pb_profile_github_key")
+            conn.execute(
+                "CREATE UNIQUE INDEX uq_pb_profile_github_key"
+                " ON project_bindings(profile, github_reference_key)"
+            )
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
     def test_pragma_relationships_prove_columns_and_unique_predicates(self, conn):
         """2.1A-INT-035 (AC4/R-002/R-008): assert the schema's structural
         shape via PRAGMA introspection (required columns + four partial
@@ -1248,6 +1269,22 @@ class TestJsonUnicodeAndCorruptionHandling:
         serialization error."""
         with pytest.raises(TypeError, match="non-finite float"):
             pb.create_binding(conn, **valid_kwargs(provider_metadata=bad_metadata))
+        assert row_count(conn) == 0
+
+    def test_reject_cyclic_reference_in_provider_metadata(self, conn):
+        """Finding 44: _require_json_compatible must detect cyclic references
+        and reject them with TypeError before reaching json.dumps, which would
+        raise RecursionError. Cyclic references are not JSON-serializable."""
+        cyclic_dict = {}
+        cyclic_dict["self"] = cyclic_dict
+        with pytest.raises(TypeError, match="cyclic reference"):
+            pb.create_binding(conn, **valid_kwargs(provider_metadata=cyclic_dict))
+        assert row_count(conn) == 0
+
+        cyclic_list = []
+        cyclic_list.append(cyclic_list)
+        with pytest.raises(TypeError, match="cyclic reference"):
+            pb.create_binding(conn, **valid_kwargs(provider_metadata={"nested": cyclic_list}))
         assert row_count(conn) == 0
 
     def test_corrupt_stored_json_fails_explicitly_on_read(self, conn):

@@ -241,16 +241,25 @@ _EXPECTED_INDEX_COLUMNS: dict[str, tuple[str, ...]] = {
     "uq_pb_profile_provider": ("profile", "provider_name", "provider_binding_name"),
 }
 
+_EXPECTED_PARTIAL_INDEX_PREDICATES: dict[str, str] = {
+    "uq_pb_profile_github_key": "WHERE github_reference_key IS NOT NULL",
+    "uq_pb_profile_bmad_dir": "WHERE bmad_skill_dir IS NOT NULL",
+    "uq_pb_profile_provider": "WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL",
+}
+
 
 def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
-    """Return True iff every expected column, unique index, and index
-    column composition exists.
+    """Return True iff every expected column, unique index, index column
+    composition, and partial index WHERE predicate exists.
 
     Column-only verification would miss externally-dropped indexes.
     Name-only index verification would miss an index recreated without
     the UNIQUE flag.  Name+unique-only verification would miss an index
     recreated with the right name and unique flag but covering the wrong
     columns (e.g. a single-column index where a composite is required).
+    Name+unique+columns verification would miss an index recreated without
+    the WHERE clause (partial index predicate) — the uniqueness constraint
+    would apply to NULL values, breaking the partial index semantics.
     """
     rows = conn.execute("PRAGMA table_info(project_bindings)").fetchall()
     if not rows:
@@ -272,6 +281,17 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
         expected_cols = _EXPECTED_INDEX_COLUMNS[expected_name]
         if actual_cols != expected_cols:
             return False
+        if expected_name in _EXPECTED_PARTIAL_INDEX_PREDICATES:
+            sql_row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
+                (expected_name,)
+            ).fetchone()
+            if not sql_row or not sql_row["sql"]:
+                return False
+            index_sql = sql_row["sql"].upper()
+            expected_predicate = _EXPECTED_PARTIAL_INDEX_PREDICATES[expected_name].upper()
+            if expected_predicate not in index_sql:
+                return False
     return True
 
 
@@ -439,16 +459,24 @@ def _validate_github_reference(
 _JSON_NATIVE_TYPES = (dict, list, str, int, float, bool, type(None))
 
 
-def _require_json_compatible(value: object, field_name: str, *, path: str = "") -> None:
+def _require_json_compatible(
+    value: object,
+    field_name: str,
+    *,
+    path: str = "",
+    _seen: Optional[set[int]] = None,
+) -> None:
     """Recursively reject values that are not JSON-native types or valid JSON values.
 
-    Catches custom objects, bytes, sets, tuples-as-non-list, and non-finite
-    floats (inf, nan) before they reach ``json.dumps`` — where the error
-    message would be less specific about *which* nested value was
-    incompatible.  Non-finite floats are valid Python ``float`` instances but
-    are not representable in JSON (``json.dumps(allow_nan=False)`` rejects
-    them); catching them here gives a specific path rather than a generic
-    serialization error.
+    Catches custom objects, bytes, sets, tuples-as-non-list, non-finite
+    floats (inf, nan), and cyclic references before they reach
+    ``json.dumps`` — where the error message would be less specific about
+    *which* nested value was incompatible.  Non-finite floats are valid
+    Python ``float`` instances but are not representable in JSON
+    (``json.dumps(allow_nan=False)`` rejects them); catching them here
+    gives a specific path rather than a generic serialization error.
+    Cyclic references would cause infinite recursion; catching them here
+    gives a specific error rather than a RecursionError.
     """
     if isinstance(value, bool):
         return
@@ -464,17 +492,34 @@ def _require_json_compatible(value: object, field_name: str, *, path: str = "") 
             f"{loc} contains non-finite float {value!r} "
             f"(JSON does not support inf/nan)"
         )
-    if isinstance(value, dict):
-        for k, v in value.items():
-            if not isinstance(k, str):
-                loc = f"{field_name}{path}"
-                raise TypeError(
-                    f"{loc} dict key {k!r} is not a string"
-                )
-            _require_json_compatible(v, field_name, path=f"{path}[{k!r}]")
-    elif isinstance(value, list):
-        for i, v in enumerate(value):
-            _require_json_compatible(v, field_name, path=f"{path}[{i}]")
+    if isinstance(value, (dict, list)):
+        if _seen is None:
+            _seen = set()
+        obj_id = id(value)
+        if obj_id in _seen:
+            loc = f"{field_name}{path}"
+            raise TypeError(
+                f"{loc} contains cyclic reference"
+            )
+        _seen.add(obj_id)
+        try:
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    if not isinstance(k, str):
+                        loc = f"{field_name}{path}"
+                        raise TypeError(
+                            f"{loc} dict key {k!r} is not a string"
+                        )
+                    _require_json_compatible(
+                        v, field_name, path=f"{path}[{k!r}]", _seen=_seen
+                    )
+            elif isinstance(value, list):
+                for i, v in enumerate(value):
+                    _require_json_compatible(
+                        v, field_name, path=f"{path}[{i}]", _seen=_seen
+                    )
+        finally:
+            _seen.discard(obj_id)
 
 
 def _validate_provider_identity(
