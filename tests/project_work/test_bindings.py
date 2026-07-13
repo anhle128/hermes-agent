@@ -2308,6 +2308,133 @@ class TestProviderIdentityEdgeCases:
         assert row_count(conn) == 0
 
 
+@requires_bindings_module
+class TestPrimaryKeyVerification:
+    """Finding 315 (re-review of Finding 49): _verify_complete_schema must
+    verify the PRIMARY KEY constraint on the id column. Without this check,
+    an externally recreated table lacking PRIMARY KEY would pass all other
+    schema checks but allow duplicate binding ids."""
+
+    def test_verify_complete_schema_detects_missing_primary_key(self, db_path):
+        """_verify_complete_schema returns False when the table exists with
+        all expected columns and indexes but lacks PRIMARY KEY on id."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP TABLE project_bindings")
+            conn.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      TEXT,
+                    profile                 TEXT NOT NULL,
+                    display_name            TEXT NOT NULL,
+                    bound_project_cwd       TEXT NOT NULL,
+                    github_reference        TEXT,
+                    github_reference_key    TEXT,
+                    bmad_skill_dir          TEXT,
+                    provider_name           TEXT,
+                    provider_binding_name   TEXT,
+                    provider_metadata       TEXT,
+                    created_at              INTEGER NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_cwd
+                    ON project_bindings(profile, bound_project_cwd);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_github_key
+                    ON project_bindings(profile, github_reference_key)
+                    WHERE github_reference_key IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_bmad_dir
+                    ON project_bindings(profile, bmad_skill_dir)
+                    WHERE bmad_skill_dir IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_provider
+                    ON project_bindings(profile, provider_name, provider_binding_name)
+                    WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL;
+            """)
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
+
+@requires_bindings_module
+class TestProviderIdentityNullStorageAtDbLevel:
+    """Finding 316 (re-review of Finding 50): tests must prove at the DB
+    level that blank provider identity is stored as SQL NULL, not empty
+    string. This matters because the partial unique index WHERE clause
+    only excludes NULL — empty strings would trigger the index and cause
+    phantom collisions between bindings that should have no provider
+    identity."""
+
+    def test_blank_provider_identity_stored_as_null_not_empty_string(self, conn):
+        """Whitespace-only provider_name/provider_binding_name are stored as
+        SQL NULL in the database, not empty strings. This is critical because
+        the partial unique index (WHERE provider_name IS NOT NULL AND
+        provider_binding_name IS NOT NULL) only excludes NULL values — empty
+        strings would trigger the index and cause phantom collisions."""
+        result = pb.create_binding(
+            conn,
+            **valid_kwargs(
+                provider_name="   ",
+                provider_binding_name="   ",
+                provider_metadata=None,
+            ),
+        )
+        assert result["conflict"] is False
+
+        row = get_row(conn, result["id"])
+        assert row["provider_name"] is None, (
+            "blank provider_name must be stored as SQL NULL, not empty string"
+        )
+        assert row["provider_binding_name"] is None, (
+            "blank provider_binding_name must be stored as SQL NULL, not empty string"
+        )
+
+        binding = pb.get_binding(conn, result["id"])
+        assert binding.provider_name is None
+        assert binding.provider_binding_name is None
+
+    def test_null_provider_identity_does_not_trigger_partial_unique_index(
+        self, conn
+    ):
+        """Two bindings with NULL provider identity (from blank coercion)
+        do not collide on the provider dimension because the partial unique
+        index excludes NULL values. This proves the NULL storage is correct
+        at the constraint level, not just the Python level."""
+        _minimal = dict(
+            github_reference=None,
+            bmad_skill_dir=None,
+        )
+        first = pb.create_binding(
+            conn,
+            **valid_kwargs(
+                bound_project_cwd="/tmp/null-provider-a",
+                provider_name="",
+                provider_binding_name="",
+                provider_metadata=None,
+                **_minimal,
+            ),
+        )
+        second = pb.create_binding(
+            conn,
+            **valid_kwargs(
+                bound_project_cwd="/tmp/null-provider-b",
+                provider_name="",
+                provider_binding_name="",
+                provider_metadata=None,
+                **_minimal,
+            ),
+        )
+        assert first["conflict"] is False
+        assert second["conflict"] is False
+        assert row_count(conn) == 2
+
+        for binding_id in (first["id"], second["id"]):
+            row = get_row(conn, binding_id)
+            assert row["provider_name"] is None
+            assert row["provider_binding_name"] is None
+
+
 # =============================================================================
 # Contract validation (executable now — targets the already-shipped fixture
 # package, not hermes_project_work; not gated by the module skip above)

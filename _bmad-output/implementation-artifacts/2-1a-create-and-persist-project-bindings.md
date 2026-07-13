@@ -238,6 +238,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   59. Added TestAdditiveRepairFixesBrokenIndexes class with 5 tests: test_repair_fixes_non_unique_index_to_unique, test_repair_fixes_index_missing_where_predicate, test_repair_fixes_index_with_wrong_columns, test_repair_preserves_data_when_fixing_broken_indexes, test_uniqueness_enforced_after_repair_of_broken_indexes (Finding 52)
   60. Added TestProviderIdentityEdgeCases class with 5 tests: test_reject_provider_name_with_embedded_null, test_reject_provider_binding_name_with_embedded_null, test_provider_identity_with_unicode_survives_roundtrip, test_reject_provider_metadata_with_nested_non_string_keys, test_reject_github_reference_with_nested_non_string_keys (Finding 53)
 - **Test results: 120/120 passing** after fourteenth fix pass addressing all 3 round-14 review findings.
+- Fifteenth fix pass (round 15) changes:
+  54. _verify_complete_schema now verifies PRIMARY KEY constraint on the `id` column via PRAGMA table_info `pk` field — added `_EXPECTED_PRIMARY_KEY_COLUMN = "id"` constant; a table recreated without PRIMARY KEY would pass all other checks (columns, types, NOT NULL, indexes, predicates) but allow duplicate binding ids (Finding 52)
+  55. Added TestProviderIdentityNullStorageAtDbLevel class with 2 tests: test_blank_provider_identity_stored_as_null_not_empty_string (proves whitespace-only provider identity is stored as SQL NULL via raw row inspection, not empty string — critical because the partial unique index WHERE clause only excludes NULL), test_null_provider_identity_does_not_trigger_partial_unique_index (proves two bindings with NULL provider identity coexist without collision, verifying DB-level NULL storage at the constraint level) (Finding 53)
+  56. Added TestPrimaryKeyVerification class with test_verify_complete_schema_detects_missing_primary_key (proves _verify_complete_schema returns False when table lacks PRIMARY KEY on id) (Finding 52)
+- **Test results: 123/123 passing** after fifteenth fix pass addressing all 3 round-15 review findings.
 
 ### File List
 
@@ -312,6 +317,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema initialization and repair still accept invalid Project Binding schemas and can leave uniqueness/identity constraints unenforced [hermes_project_work/bindings.py:205]
 - [x] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:552]
 - [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1878]
-- [ ] [Review][Patch] Schema initialization and verification still accept invalid Project Binding schemas and can return unusable or under-constrained databases [hermes_project_work/bindings.py:205]
-- [ ] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy, blank, and contradictory persisted identities [hermes_project_work/bindings.py:553]
-- [ ] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1870]
+- [x] [Review][Patch] Schema initialization and verification still accept invalid Project Binding schemas and can return unusable or under-constrained databases [hermes_project_work/bindings.py:205]
+- [x] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy, blank, and contradictory persisted identities [hermes_project_work/bindings.py:553]
+- [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1870]

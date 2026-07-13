@@ -251,6 +251,8 @@ _EXPECTED_NOT_NULL_COLUMNS = frozenset({
     "profile", "display_name", "bound_project_cwd", "created_at",
 })
 
+_EXPECTED_PRIMARY_KEY_COLUMN = "id"
+
 _EXPECTED_COLUMN_TYPES: dict[str, str] = {
     "id": "TEXT",
     "profile": "TEXT",
@@ -268,8 +270,8 @@ _EXPECTED_COLUMN_TYPES: dict[str, str] = {
 
 def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
     """Return True iff every expected column (with correct type affinity and
-    NOT NULL constraint), unique index, index column composition, and partial
-    index WHERE predicate exists.
+    NOT NULL constraint), the PRIMARY KEY on ``id``, every unique index,
+    index column composition, and partial index WHERE predicate exists.
 
     Column-name-only verification would miss columns recreated with wrong
     types (e.g. INTEGER instead of TEXT) or missing NOT NULL constraints.
@@ -281,6 +283,9 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
     Name+unique+columns verification would miss an index recreated without
     the WHERE clause (partial index predicate) — the uniqueness constraint
     would apply to NULL values, breaking the partial index semantics.
+    Without PRIMARY KEY verification, an externally recreated table
+    lacking ``PRIMARY KEY`` on ``id`` would pass all other checks but
+    allow duplicate binding ids.
     """
     rows = conn.execute("PRAGMA table_info(project_bindings)").fetchall()
     if not rows:
@@ -296,6 +301,8 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
     for col_name in _EXPECTED_NOT_NULL_COLUMNS:
         if not col_info[col_name]["notnull"]:
             return False
+    if not col_info[_EXPECTED_PRIMARY_KEY_COLUMN]["pk"]:
+        return False
     indexes = conn.execute("PRAGMA index_list(project_bindings)").fetchall()
     index_map = {row["name"]: row for row in indexes}
     for expected_name in _EXPECTED_UNIQUE_INDEXES:
