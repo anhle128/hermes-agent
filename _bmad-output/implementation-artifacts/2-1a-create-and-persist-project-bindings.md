@@ -209,6 +209,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   40. _verify_complete_schema now verifies index column composition via PRAGMA index_info — added _EXPECTED_INDEX_COLUMNS mapping each index name to its expected column tuple; checks actual columns match expected columns in order, preventing an index with the right name and unique=1 but wrong columns from passing verification (Finding 40)
   41. _validate_provider_identity now rejects provider_metadata containing keys that overlap with explicit Controller Identity columns ("provider_name", "provider_binding_name") — prevents contradictory data where metadata and explicit columns disagree (Finding 41)
   42. Added TestSchemaPredicatesAndRollback class with 3 tests: test_partial_index_predicate_allows_null_values_to_coexist (verifies WHERE ... IS NOT NULL predicates are enforced), test_transaction_rollback_on_conflict_preserves_connection_state (verifies clean rollback on conflict), test_cross_process_race_is_concurrent_not_sequential (verifies concurrent execution with barrier synchronization and validates binding fields after race) (Finding 42)
+- **Test results: 95/95 passing** after tenth fix pass addressing all 3 round-10 review findings.
+- Tenth fix pass (round 10) changes:
+  43. _verify_complete_schema now verifies partial index WHERE predicates via sqlite_master SQL text — added _EXPECTED_PARTIAL_INDEX_PREDICATES dict mapping each partial index to its expected WHERE clause substring; prevents an index with correct name/unique/columns but missing WHERE clause from passing verification (Finding 43)
+  44. _require_json_compatible now detects and rejects cyclic references — added _seen parameter (set of object ids) to track visited containers; raises TypeError with "cyclic reference" message instead of RecursionError on cyclic dicts/lists (Finding 44)
+  45. Added test_verify_complete_schema_detects_missing_where_clause and test_reject_cyclic_reference_in_provider_metadata to prove schema WHERE clause verification and cyclic reference detection (Finding 45)
 - **Test results: 93/93 passing** after ninth fix pass addressing all 3 round-9 review findings.
 
 ### File List
@@ -269,6 +274,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema verification and cached repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:251]
 - [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:384]
 - [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:1153]
-- [ ] [Review][Patch] Schema verification and cached repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:251]
-- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:384]
-- [ ] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:1153]
+- [x] [Review][Patch] Schema verification and cached repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:251]
+- [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:384]
+- [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:1153]
