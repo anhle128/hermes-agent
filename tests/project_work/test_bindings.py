@@ -64,8 +64,16 @@ import pytest
 
 try:
     from hermes_project_work import bindings as pb
-except ImportError:  # pragma: no cover - expected until Task 1 lands
+except ModuleNotFoundError:
+    # Expected until Task 1 lands: hermes_project_work package doesn't exist yet
     pb = None
+except ImportError as exc:
+    # Other ImportErrors (syntax errors, missing dependencies) should propagate
+    # so tests fail instead of skip silently. Only skip if the module itself is missing.
+    if "hermes_project_work" in str(exc):
+        pb = None
+    else:
+        raise
 
 # Applied per-class (not as a file-wide `pytestmark`) so the standalone
 # contract-validator test at the bottom of this file — which targets the
@@ -1033,7 +1041,9 @@ class TestIdentityStability:
         """2.1A-INT-041 (R-011): if the random-id generator is forced to
         collide (pathological but possible), create_binding() must fail
         closed — never silently overwrite the first row. The exact private
-        id-generator seam name is illustrative; adjust to the actual helper."""
+        id-generator seam name is illustrative; adjust to the actual helper.
+        After exhausting retries (10 attempts), RuntimeError is raised —
+        this is the correct fail-closed behavior."""
         id_gen_name = "_new_binding_id"
         if not hasattr(pb, id_gen_name):
             pytest.skip(f"pb.{id_gen_name} not present; adjust to actual id generator name")
@@ -1041,17 +1051,28 @@ class TestIdentityStability:
         monkeypatch.setattr(pb, id_gen_name, lambda: "pb_00000000")
 
         first = pb.create_binding(conn, **valid_kwargs(bound_project_cwd="/tmp/first"))
-        second = pb.create_binding(conn, **valid_kwargs(bound_project_cwd="/tmp/second"))
-
         assert first["id"] == "pb_00000000"
-        # A colliding id must not silently overwrite: either the second call
-        # fails closed (conflict/error) or it retries with a fresh id — but it
-        # must never share the first row's id while both rows persist.
-        if second.get("conflict"):
-            assert row_count(conn) == 1
-        else:
-            assert second["id"] != first["id"]
-            assert row_count(conn) == 2
+        assert first["conflict"] is False
+
+        # Second create with forced id collision: override ALL uniqueness dimensions
+        # so the pre-check passes and the INSERT is attempted, forcing the PK collision.
+        second_kwargs = valid_kwargs(
+            bound_project_cwd="/tmp/second",
+            github_reference=None,
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+            provider_metadata=None,
+        )
+
+        # The first INSERT succeeds, the second INSERT fails with IntegrityError
+        # (PK collision), the retry loop generates the same id again (because of
+        # the monkeypatch), fails again, and after 10 retries raises RuntimeError.
+        with pytest.raises(RuntimeError, match="failed to generate a unique binding id"):
+            pb.create_binding(conn, **second_kwargs)
+
+        # Only the first row persists — the second create failed closed
+        assert row_count(conn) == 1
 
 
 @requires_bindings_module

@@ -106,13 +106,29 @@ def _normalize_path(path: str) -> str:
     to an empty string.  Null bytes are rejected — they cause silent
     truncation in SQLite and C-level path operations.  Input must be a
     string — non-string types are rejected to prevent silent coercion.
+    Blank paths (empty or whitespace-only) are rejected — they would
+    normalize to the process cwd, which is almost never the intent.
+    Windows drive roots (e.g., ``"C:\\"``) are preserved — stripping the
+    trailing separator would leave ``"C:"`` (current directory on C:),
+    which is not the same as ``"C:\\"`` (root of C:).
     """
     if not isinstance(path, str):
         raise TypeError(f"path must be a string, got {type(path).__name__}")
     if "\x00" in path:
         raise ValueError("path must not contain null bytes")
-    p = os.path.abspath(os.path.expanduser(path.strip()))
-    return p.rstrip("/\\") or p
+    stripped = path.strip()
+    if not stripped:
+        raise ValueError("path must not be blank")
+    p = os.path.abspath(os.path.expanduser(stripped))
+    # Strip trailing separators, but preserve roots
+    result = p.rstrip("/\\")
+    if not result:
+        # Unix root: "/" -> "" after strip, return "/"
+        return p
+    if len(result) == 2 and result[1] == ":":
+        # Windows drive root: "C:\\" -> "C:" after strip, return "C:\\"
+        return p
+    return result
 
 
 def _github_reference_key(ref: dict) -> str:
@@ -330,6 +346,14 @@ def _validate_provider_identity(
     provider_binding_name: Optional[str],
     provider_metadata: Optional[dict] = None,
 ) -> None:
+    if provider_name is not None and not isinstance(provider_name, str):
+        raise TypeError(
+            f"provider_name must be a string or None, got {type(provider_name).__name__}"
+        )
+    if provider_binding_name is not None and not isinstance(provider_binding_name, str):
+        raise TypeError(
+            f"provider_binding_name must be a string or None, got {type(provider_binding_name).__name__}"
+        )
     has_name = (
         isinstance(provider_name, str) and bool(provider_name.strip())
     )
@@ -481,8 +505,6 @@ def create_binding(
         if provider_metadata is not None
         else None
     )
-
-    _ensure_schema(conn)
 
     now = _now()
 

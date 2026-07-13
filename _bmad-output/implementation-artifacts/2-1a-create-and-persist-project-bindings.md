@@ -148,7 +148,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - JSON serialization validates round-trip fidelity before accepting.
 - PK collision retries raise RuntimeError after exhaustion instead of returning an empty diagnostic.
 - Profile names are canonicalized (stripped of whitespace). Non-string profile values are rejected.
-- **Test results: 65/65 passing** after second fix pass addressing all 6 round-2 review findings.
+- Blank paths are rejected before normalization. Windows drive roots (e.g., "C:\\") are preserved.
+- Schema initialization only happens in connect(), not in create_binding(), preventing caller transaction commits.
+- Provider identity validation rejects non-string types for provider_name and provider_binding_name.
+- Import guard in tests catches only ModuleNotFoundError and hermes_project_work ImportErrors, not all ImportErrors.
+- **Test results: 65/65 passing** after third fix pass addressing all 5 round-3 review findings.
 - First fix pass (round 1) changes:
   1. Moved uniqueness pre-checks inside IMMEDIATE transaction (Finding 1)
   2. Schema/migration OperationalErrors now only swallow lock/busy errors (Finding 2)
@@ -167,6 +171,12 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   14. Added path type validation (must be string); canonicalized profile names (Finding 14)
   15. Fixed uniqueness dimension test to override ALL non-target dimensions (Finding 15)
   16. Strengthened cross-process race tests to verify violations field and distinct IDs (Finding 16)
+- Third fix pass (round 3) changes:
+  17. Removed _ensure_schema() call from create_binding() to prevent committing caller transactions (Finding 17)
+  18. Added explicit type checks for provider_name and provider_binding_name (Finding 18)
+  19. Rejected blank paths; preserved Windows drive roots in _normalize_path (Finding 19)
+  20. Updated forced PK collision test to override all uniqueness dimensions (Finding 20)
+  21. Made import guard more specific to catch only module-not-found errors (Finding 21)
 
 ### File List
 
@@ -193,8 +203,8 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Profile and BMAD path identities remain non-canonical [hermes_project_work/bindings.py:102]
 - [x] [Review][Patch] Uniqueness and forced-ID tests still pass through non-target conflicts [tests/project_work/test_bindings.py:215]
 - [x] [Review][Patch] TEA rollback, restart, schema, lock, and process tests remain false-positive evidence [tests/project_work/test_bindings.py:674]
-- [ ] [Review][Patch] Create-side schema initialization still commits caller transactions and bypasses lock retry [hermes_project_work/bindings.py:137]
-- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed or type-losing values [hermes_project_work/bindings.py:328]
-- [ ] [Review][Patch] Blank BMAD paths and Windows roots still normalize to incorrect identities [hermes_project_work/bindings.py:102]
-- [ ] [Review][Patch] Primary-key collision handling still retries and its test never reaches the path [hermes_project_work/bindings.py:489]
-- [ ] [Review][Patch] TEA tests still provide false-positive import, race, rollback, restart, and schema evidence [tests/project_work/test_bindings.py:65]
+- [x] [Review][Patch] Create-side schema initialization still commits caller transactions and bypasses lock retry [hermes_project_work/bindings.py:137]
+- [x] [Review][Patch] Provider identity and JSON validation still accepts malformed or type-losing values [hermes_project_work/bindings.py:328]
+- [x] [Review][Patch] Blank BMAD paths and Windows roots still normalize to incorrect identities [hermes_project_work/bindings.py:102]
+- [x] [Review][Patch] Primary-key collision handling still retries and its test never reaches the path [hermes_project_work/bindings.py:489]
+- [x] [Review][Patch] TEA tests still provide false-positive import, race, rollback, restart, and schema evidence [tests/project_work/test_bindings.py:65]
