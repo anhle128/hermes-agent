@@ -193,3 +193,8 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Profile and BMAD path identities remain non-canonical [hermes_project_work/bindings.py:102]
 - [x] [Review][Patch] Uniqueness and forced-ID tests still pass through non-target conflicts [tests/project_work/test_bindings.py:215]
 - [x] [Review][Patch] TEA rollback, restart, schema, lock, and process tests remain false-positive evidence [tests/project_work/test_bindings.py:674]
+- [ ] [Review][Patch] Create-side schema initialization still commits caller transactions and bypasses lock retry [hermes_project_work/bindings.py:137]
+- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed or type-losing values [hermes_project_work/bindings.py:328]
+- [ ] [Review][Patch] Blank BMAD paths and Windows roots still normalize to incorrect identities [hermes_project_work/bindings.py:102]
+- [ ] [Review][Patch] Primary-key collision handling still retries and its test never reaches the path [hermes_project_work/bindings.py:489]
+- [ ] [Review][Patch] TEA tests still provide false-positive import, race, rollback, restart, and schema evidence [tests/project_work/test_bindings.py:65]
