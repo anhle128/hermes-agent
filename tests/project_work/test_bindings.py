@@ -64,7 +64,9 @@ import pytest
 
 try:
     from hermes_project_work import bindings as pb
-except ModuleNotFoundError:
+except ModuleNotFoundError as exc:
+    if "hermes_project_work" not in str(exc):
+        raise
     # Expected until Task 1 lands: hermes_project_work package doesn't exist yet
     pb = None
 
@@ -972,6 +974,59 @@ class TestMigrationAndIdempotentInit:
         finally:
             conn2.close()
 
+    def test_cached_connection_detects_missing_table_and_repairs(self, db_path):
+        """Finding 27: _init_cached_connection verifies the COMPLETE schema
+        via _verify_complete_schema. When the table is missing entirely
+        (PRAGMA table_info returns no rows), the cached path re-runs
+        executescript(SCHEMA_SQL) to recreate it."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        # Drop the table entirely — simulates external deletion
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP TABLE project_bindings")
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        # Reconnect through the cached path — _verify_complete_schema must
+        # detect the missing table and re-run executescript(SCHEMA_SQL).
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            columns = {
+                row["name"]
+                for row in conn2.execute("PRAGMA table_info(project_bindings)")
+            }
+            assert "github_reference" in columns, (
+                "schema verification should have restored the missing table"
+            )
+            assert "github_reference_key" in columns
+            assert "bmad_skill_dir" in columns
+            # Verify the connection is usable after repair
+            result = pb.create_binding(conn2, **valid_kwargs())
+            assert result["conflict"] is False
+        finally:
+            conn2.close()
+
+    def test_verify_complete_schema_rejects_missing_table(self, db_path):
+        """Finding 27: _verify_complete_schema returns False when the table
+        does not exist (PRAGMA table_info returns no rows)."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP TABLE project_bindings")
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
     def test_pragma_relationships_prove_columns_and_unique_predicates(self, conn):
         """2.1A-INT-035 (AC4/R-002/R-008): assert the schema's structural
         shape via PRAGMA introspection (required columns + four partial
@@ -1028,6 +1083,33 @@ class TestJsonUnicodeAndCorruptionHandling:
         write or a silently-substituted value."""
         with pytest.raises((ValueError, TypeError)):
             pb.create_binding(conn, **valid_kwargs(provider_metadata=non_serializable))
+        assert row_count(conn) == 0
+
+    @pytest.mark.parametrize(
+        "bad_metadata",
+        [
+            {"key": b"bytes_value"},
+            {"key": {1, 2, 3}},
+            {"key": object()},
+            {"nested": {"deep": b"nope"}},
+            {"list_with_bytes": [b"nope"]},
+        ],
+        ids=[
+            "bytes-value",
+            "set-value",
+            "object-value",
+            "nested-bytes",
+            "list-with-bytes",
+        ],
+    )
+    def test_reject_non_json_native_types_in_provider_metadata_before_serialize(
+        self, conn, bad_metadata
+    ):
+        """Finding 26: provider_metadata with non-JSON-native types (bytes,
+        sets, custom objects) is rejected by _require_json_compatible before
+        reaching json.dumps — TypeError, not ValueError, and zero rows."""
+        with pytest.raises(TypeError):
+            pb.create_binding(conn, **valid_kwargs(provider_metadata=bad_metadata))
         assert row_count(conn) == 0
 
     def test_corrupt_stored_json_fails_explicitly_on_read(self, conn):

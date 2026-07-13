@@ -183,6 +183,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   24. _INITIALIZED_PATHS cache now consulted in connect() — cached paths skip redundant executescript(SCHEMA_SQL) but detect file recreation via table probe; _migrate_add_optional_columns() always runs (Finding 24)
   25. Import guard tightened to only catch ModuleNotFoundError; ImportError (syntax errors, missing deps) now propagates so tests fail instead of skip silently (Finding 25)
 - **Test results: 66/66 passing** after fourth fix pass addressing all 4 round-4 review findings.
+- Fifth fix pass (round 5) changes:
+  26. Added `_require_json_compatible()` recursive type checker that rejects non-JSON-native types (bytes, sets, custom objects) in provider_metadata before reaching json.dumps — TypeError with specific path information (Finding 26)
+  27. Added `_verify_complete_schema()` that checks all expected columns via PRAGMA table_info; `_init_cached_connection()` now uses it instead of a simple table-existence probe, re-running executescript(SCHEMA_SQL) when columns are missing (Finding 27)
+  28. Import guard tightened to check `"hermes_project_work" not in str(exc)` — ModuleNotFoundError for other modules propagates instead of being silently caught (Finding 28)
+- **Test results: 73/73 passing** after fifth fix pass addressing all 3 round-5 review findings.
 
 ### File List
 
@@ -218,6 +223,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Primary-key collisions still retry and raise instead of returning a machine-readable conflict [hermes_project_work/bindings.py:511]
 - [x] [Review][Patch] Per-path schema initialization cache is populated but never consulted [hermes_project_work/bindings.py:91]
 - [x] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
-- [ ] [Review][Patch] Provider identity and JSON fidelity still accept malformed or type-losing inputs [hermes_project_work/bindings.py:372]
-- [ ] [Review][Patch] Cached schema initialization does not verify or retry the complete schema [hermes_project_work/bindings.py:169]
-- [ ] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
+- [x] [Review][Patch] Provider identity and JSON fidelity still accept malformed or type-losing inputs [hermes_project_work/bindings.py:372]
+- [x] [Review][Patch] Cached schema initialization does not verify or retry the complete schema [hermes_project_work/bindings.py:169]
+- [x] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]

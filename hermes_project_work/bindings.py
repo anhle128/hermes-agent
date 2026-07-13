@@ -218,11 +218,30 @@ def _init_connection_with_retry(conn: sqlite3.Connection) -> None:
             raise
 
 
+_EXPECTED_COLUMNS = frozenset({
+    "id", "profile", "display_name", "bound_project_cwd",
+    "github_reference", "github_reference_key",
+    "bmad_skill_dir", "provider_name", "provider_binding_name",
+    "provider_metadata", "created_at",
+})
+
+
+def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
+    """Return True iff every expected column exists on project_bindings."""
+    rows = conn.execute("PRAGMA table_info(project_bindings)").fetchall()
+    if not rows:
+        return False
+    present = {row["name"] for row in rows}
+    return _EXPECTED_COLUMNS.issubset(present)
+
+
 def _init_cached_connection(conn: sqlite3.Connection) -> None:
     """Initialize a connection for a cached path.
 
     Skips redundant ``executescript(SCHEMA_SQL)`` for performance, but
-    detects file recreation by probing the table.  Always runs
+    verifies the complete schema (all expected columns) by probing
+    ``PRAGMA table_info``.  If any column is missing (e.g. external
+    modification), re-runs the full schema init.  Always runs
     ``_migrate_add_optional_columns()`` so the migration seam fires on
     every ``connect()``.
     """
@@ -231,9 +250,7 @@ def _init_cached_connection(conn: sqlite3.Connection) -> None:
     apply_wal_with_fallback(conn, db_label="project_bindings.db")
     conn.execute("PRAGMA foreign_keys=ON")
 
-    try:
-        conn.execute("SELECT 1 FROM project_bindings LIMIT 0")
-    except sqlite3.OperationalError:
+    if not _verify_complete_schema(conn):
         conn.executescript(SCHEMA_SQL)
 
     _migrate_add_optional_columns(conn)
@@ -369,6 +386,35 @@ def _validate_github_reference(
     return ref
 
 
+_JSON_NATIVE_TYPES = (dict, list, str, int, float, bool, type(None))
+
+
+def _require_json_compatible(value: object, field_name: str, *, path: str = "") -> None:
+    """Recursively reject values that are not JSON-native types.
+
+    Catches custom objects, bytes, sets, tuples-as-non-list, etc. before
+    they reach ``json.dumps`` — where the error message would be less
+    specific about *which* nested value was incompatible.
+    """
+    if not isinstance(value, _JSON_NATIVE_TYPES):
+        loc = f"{field_name}{path}"
+        raise TypeError(
+            f"{loc} contains non-JSON-compatible type "
+            f"{type(value).__name__}"
+        )
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if not isinstance(k, str):
+                loc = f"{field_name}{path}"
+                raise TypeError(
+                    f"{loc} dict key {k!r} is not a string"
+                )
+            _require_json_compatible(v, field_name, path=f"{path}[{k!r}]")
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            _require_json_compatible(v, field_name, path=f"{path}[{i}]")
+
+
 def _validate_provider_identity(
     provider_name: Optional[str],
     provider_binding_name: Optional[str],
@@ -403,10 +449,12 @@ def _validate_provider_identity(
                 "provider_metadata requires both provider_name and "
                 "provider_binding_name (Controller Identity)"
             )
+        _require_json_compatible(provider_metadata, "provider_metadata")
 
 
 def _serialize_json(value: dict, field_name: str) -> str:
     """Serialize to JSON, rejecting non-standard constants and unfaithful round-trips."""
+    _require_json_compatible(value, field_name)
     try:
         serialized = json.dumps(value, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError) as exc:
