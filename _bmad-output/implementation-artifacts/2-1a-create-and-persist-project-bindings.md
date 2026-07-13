@@ -227,6 +227,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   52. Added TestSchemaNotNullAndTypeVerification class with 3 tests: test_verify_complete_schema_detects_missing_not_null (verifies NOT NULL check), test_verify_complete_schema_detects_wrong_column_type (verifies column type check), test_schema_repair_restores_not_null_constraints (verifies repair restores NOT NULL via drop-and-recreate) (Finding 51)
   53. Added TestGithubReferenceJsonValidation class with 5 parametrized tests: test_reject_non_json_native_types_in_github_reference (bytes, sets, objects in extra keys) and test_reject_non_finite_floats_in_github_reference (inf, nan in extra keys) — proves github_reference JSON validation matches provider_metadata discipline (Finding 51)
 - **Test results: 107/107 passing** after twelfth fix pass addressing all 3 round-12 review findings.
+- Thirteenth fix pass (round 13) changes:
+  54. Replaced destructive DROP TABLE + recreate schema repair with additive-only `_repair_schema_additive()` — creates table if missing via executescript(SCHEMA_SQL), adds missing columns via `add_column_if_missing`, recreates missing indexes via individual DDL statements. Never drops the table or deletes persisted data (Finding 49)
+  55. Added test evidence for non-string dict key rejection in both github_reference and provider_metadata — `_require_json_compatible` already rejects non-string keys but tests didn't prove it (Finding 50)
+  56. Replaced `test_schema_repair_restores_not_null_constraints` (exercised the now-removed DROP TABLE path) with `test_additive_schema_repair_preserves_all_persisted_data` (proves 2 bindings with all fields survive column-drop repair) and `test_additive_repair_adds_missing_columns_preserving_existing_data` (proves missing column + index are added while preserving data) (Finding 51)
+- **Test results: 110/110 passing** after thirteenth fix pass addressing all 3 round-13 review findings.
 
 ### File List
 
@@ -295,6 +300,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema verification and repair still do not prove or restore the full persistence contract [hermes_project_work/bindings.py:251]
 - [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:474]
 - [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, lock, path, and race boundaries [tests/project_work/test_bindings.py:1153]
-- [ ] [Review][Patch] Schema initialization and repair can still return an invalid database or delete persisted Project Bindings [hermes_project_work/bindings.py:205]
-- [ ] [Review][Patch] Provider identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:528]
-- [ ] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1079]
+- [x] [Review][Patch] Schema initialization and repair can still return an invalid database or delete persisted Project Bindings [hermes_project_work/bindings.py:205]
+- [x] [Review][Patch] Provider identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:528]
+- [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1079]

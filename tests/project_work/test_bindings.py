@@ -1867,34 +1867,34 @@ class TestSchemaNotNullAndTypeVerification:
         finally:
             conn.close()
 
-    def test_schema_repair_restores_not_null_constraints(self, db_path):
-        """When NOT NULL constraints are lost (e.g. external modification),
-        the cached connection repair path re-runs executescript(SCHEMA_SQL)
-        which recreates the table with correct constraints."""
+    def test_additive_schema_repair_preserves_all_persisted_data(self, db_path):
+        """Finding 49: additive schema repair must NOT drop the table or
+        delete persisted rows.  When the table exists but has missing
+        columns, _repair_schema_additive adds the missing columns WITHOUT
+        destroying existing data.  The previous DROP TABLE + recreate
+        approach silently deleted all persisted Project Bindings."""
         conn1 = pb.connect(db_path=db_path)
         try:
-            pb.create_binding(conn1, **valid_kwargs())
+            r1 = pb.create_binding(conn1, **valid_kwargs(bound_project_cwd="/tmp/first"))
+            r2 = pb.create_binding(
+                conn1,
+                **valid_kwargs(
+                    bound_project_cwd="/tmp/second",
+                    github_reference={"owner": "Other", "repo": "Repo"},
+                    bmad_skill_dir="/tmp/other/_bmad",
+                    provider_name="other-provider",
+                    provider_binding_name="other-binding",
+                    provider_metadata={"key": "value"},
+                ),
+            )
         finally:
             conn1.close()
 
         conn_alter = sqlite3.connect(str(db_path))
         try:
-            conn_alter.execute("DROP TABLE project_bindings")
-            conn_alter.executescript("""
-                CREATE TABLE project_bindings (
-                    id                      TEXT PRIMARY KEY,
-                    profile                 TEXT,
-                    display_name            TEXT,
-                    bound_project_cwd       TEXT,
-                    github_reference        TEXT,
-                    github_reference_key    TEXT,
-                    bmad_skill_dir          TEXT,
-                    provider_name           TEXT,
-                    provider_binding_name   TEXT,
-                    provider_metadata       TEXT,
-                    created_at              INTEGER
-                );
-            """)
+            conn_alter.execute(
+                "ALTER TABLE project_bindings DROP COLUMN provider_metadata"
+            )
             conn_alter.commit()
         finally:
             conn_alter.close()
@@ -1902,11 +1902,56 @@ class TestSchemaNotNullAndTypeVerification:
         conn2 = pb.connect(db_path=db_path)
         try:
             assert pb._verify_complete_schema(conn2) is True
-            for row in conn2.execute("PRAGMA table_info(project_bindings)").fetchall():
-                if row["name"] in pb._EXPECTED_NOT_NULL_COLUMNS:
-                    assert row["notnull"] == 1, (
-                        f"column {row['name']} should be NOT NULL after repair"
-                    )
+
+            b1 = pb.get_binding(conn2, r1["id"])
+            assert b1 is not None, "first binding must survive additive repair"
+            assert b1.bound_project_cwd == "/tmp/first"
+            assert b1.display_name == "Hermes Agent"
+            assert b1.profile == "default"
+
+            b2 = pb.get_binding(conn2, r2["id"])
+            assert b2 is not None, "second binding must survive additive repair"
+            assert b2.bound_project_cwd == "/tmp/second"
+            assert b2.github_reference == {"owner": "Other", "repo": "Repo"}
+            assert b2.bmad_skill_dir == "/tmp/other/_bmad"
+            assert b2.provider_name == "other-provider"
+            assert b2.provider_binding_name == "other-binding"
+
+            assert row_count(conn2) == 2
+        finally:
+            conn2.close()
+
+    def test_additive_repair_adds_missing_columns_preserving_existing_data(self, db_path):
+        """Additive repair adds missing columns via add_column_if_missing
+        while preserving existing data.  Unlike DROP TABLE + recreate,
+        persisted rows survive the repair."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            created = pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_bmad_dir")
+            conn_alter.execute("ALTER TABLE project_bindings DROP COLUMN bmad_skill_dir")
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            columns = {
+                row["name"]
+                for row in conn2.execute("PRAGMA table_info(project_bindings)").fetchall()
+            }
+            assert "bmad_skill_dir" in columns, "missing column should be added by repair"
+            assert pb._verify_complete_schema(conn2) is True
+
+            binding = pb.get_binding(conn2, created["id"])
+            assert binding is not None, "binding must survive additive repair"
+            assert binding.display_name == "Hermes Agent"
+            assert binding.bound_project_cwd == valid_kwargs()["bound_project_cwd"]
         finally:
             conn2.close()
 
@@ -1958,6 +2003,31 @@ class TestGithubReferenceJsonValidation:
         to exercise the _require_json_compatible path."""
         with pytest.raises(TypeError, match="non-finite float"):
             pb.create_binding(conn, **valid_kwargs(github_reference=bad_ref))
+        assert row_count(conn) == 0
+
+    def test_reject_non_string_dict_keys_in_github_reference(self, conn):
+        """Finding 50: github_reference with non-string dict keys is rejected
+        by _require_json_compatible — json.dumps would silently stringify
+        non-string keys (e.g. 1 → "1"), causing lossy round-trips. The
+        pre-serialization check catches this with a specific TypeError."""
+        bad_ref = {"owner": "test", "repo": "ok", 1: "non-string-key"}
+        with pytest.raises(TypeError, match="dict key"):
+            pb.create_binding(conn, **valid_kwargs(github_reference=bad_ref))
+        assert row_count(conn) == 0
+
+    def test_reject_non_string_dict_keys_in_provider_metadata(self, conn):
+        """Finding 50: provider_metadata with non-string dict keys is
+        rejected — same lossy stringification risk as github_reference."""
+        bad_metadata = {"bindingId": "wpb_123", 42: "non-string-key"}
+        with pytest.raises(TypeError, match="dict key"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="default",
+                    provider_metadata=bad_metadata,
+                ),
+            )
         assert row_count(conn) == 0
 
 

@@ -324,17 +324,65 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
     return True
 
 
+def _repair_schema_additive(conn: sqlite3.Connection) -> None:
+    """Additive-only schema repair — never drops the table or deletes data.
+
+    Creates the table if missing, adds missing columns, and recreates
+    missing indexes.  Unlike DROP TABLE + recreate, this preserves all
+    persisted rows.  Column type changes or NOT NULL constraint additions
+    on existing columns are NOT handled — those require a manual migration
+    (out of scope for this story).
+    """
+    table_exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='project_bindings'"
+    ).fetchone()
+    if not table_exists:
+        conn.executescript(SCHEMA_SQL)
+        return
+    for col_name in _EXPECTED_COLUMNS:
+        col_type = _EXPECTED_COLUMN_TYPES.get(col_name, "TEXT")
+        _add_column_if_missing(conn, "project_bindings", col_name, f"{col_name} {col_type}")
+    _INDEX_DDL_STATEMENTS = {
+        "uq_pb_profile_cwd": (
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_cwd"
+            " ON project_bindings(profile, bound_project_cwd)"
+        ),
+        "uq_pb_profile_github_key": (
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_github_key"
+            " ON project_bindings(profile, github_reference_key)"
+            " WHERE github_reference_key IS NOT NULL"
+        ),
+        "uq_pb_profile_bmad_dir": (
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_bmad_dir"
+            " ON project_bindings(profile, bmad_skill_dir)"
+            " WHERE bmad_skill_dir IS NOT NULL"
+        ),
+        "uq_pb_profile_provider": (
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_provider"
+            " ON project_bindings(profile, provider_name, provider_binding_name)"
+            " WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL"
+        ),
+    }
+    existing_indexes = {
+        row["name"]
+        for row in conn.execute("PRAGMA index_list(project_bindings)").fetchall()
+    }
+    for index_name, ddl in _INDEX_DDL_STATEMENTS.items():
+        if index_name not in existing_indexes:
+            conn.execute(ddl)
+
+
 def _init_cached_connection(conn: sqlite3.Connection) -> None:
     """Initialize a connection for a cached path.
 
     Skips redundant ``executescript(SCHEMA_SQL)`` for performance, but
-    verifies the complete schema (all expected columns) by probing
-    ``PRAGMA table_info``.  If any column is missing (e.g. external
-    modification), re-runs the full schema init with bounded lock-error
-    retry — the cold path has the same retry via
-    ``_init_connection_with_retry``, but the warm path was missing it.
-    Always runs ``_migrate_add_optional_columns()`` so the migration seam
-    fires on every ``connect()``.
+    verifies the complete schema (all expected columns, indexes,
+    predicates) by probing PRAGMA metadata.  If anything is missing
+    (e.g. external modification), performs additive-only repair via
+    ``_repair_schema_additive()`` — this adds missing columns and
+    recreates missing indexes WITHOUT dropping the table or deleting
+    persisted data.  Always runs ``_migrate_add_optional_columns()`` so
+    the migration seam fires on every ``connect()``.
     """
     from hermes_state import apply_wal_with_fallback
 
@@ -344,9 +392,7 @@ def _init_cached_connection(conn: sqlite3.Connection) -> None:
     if not _verify_complete_schema(conn):
         for attempt in range(_SCHEMA_INIT_RETRIES):
             try:
-                conn.executescript(
-                    "DROP TABLE IF EXISTS project_bindings;" + SCHEMA_SQL
-                )
+                _repair_schema_additive(conn)
                 break
             except sqlite3.OperationalError as exc:
                 if _is_lock_error(exc) and attempt < _SCHEMA_INIT_RETRIES - 1:
