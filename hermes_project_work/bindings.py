@@ -327,11 +327,16 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
 def _repair_schema_additive(conn: sqlite3.Connection) -> None:
     """Additive-only schema repair — never drops the table or deletes data.
 
-    Creates the table if missing, adds missing columns, and recreates
-    missing indexes.  Unlike DROP TABLE + recreate, this preserves all
-    persisted rows.  Column type changes or NOT NULL constraint additions
-    on existing columns are NOT handled — those require a manual migration
-    (out of scope for this story).
+    Creates the table if missing, adds missing columns, and ensures all
+    expected unique indexes have correct definitions by dropping and
+    recreating them.  Unlike DROP TABLE + recreate on the data table,
+    dropping **indexes** is safe — indexes are metadata derived from
+    persisted rows, not the rows themselves.  ``DROP INDEX`` does not
+    delete any data from ``project_bindings``.
+
+    Column type changes or NOT NULL constraint additions on existing
+    columns are NOT handled — those require a manual migration (out of
+    scope for this story).
     """
     table_exists = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='project_bindings'"
@@ -363,13 +368,9 @@ def _repair_schema_additive(conn: sqlite3.Connection) -> None:
             " WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL"
         ),
     }
-    existing_indexes = {
-        row["name"]
-        for row in conn.execute("PRAGMA index_list(project_bindings)").fetchall()
-    }
     for index_name, ddl in _INDEX_DDL_STATEMENTS.items():
-        if index_name not in existing_indexes:
-            conn.execute(ddl)
+        conn.execute(f"DROP INDEX IF EXISTS {index_name}")
+        conn.execute(ddl)
 
 
 def _init_cached_connection(conn: sqlite3.Connection) -> None:
@@ -637,6 +638,10 @@ def _validate_provider_identity(
         raise TypeError(
             f"provider_binding_name must be a string or None, got {type(provider_binding_name).__name__}"
         )
+    if isinstance(provider_name, str) and "\x00" in provider_name:
+        raise ValueError("provider_name must not contain null bytes")
+    if isinstance(provider_binding_name, str) and "\x00" in provider_binding_name:
+        raise ValueError("provider_binding_name must not contain null bytes")
     pn = provider_name.strip() if isinstance(provider_name, str) else None
     if pn == "":
         pn = None

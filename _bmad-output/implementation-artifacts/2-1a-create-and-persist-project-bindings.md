@@ -232,6 +232,12 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   55. Added test evidence for non-string dict key rejection in both github_reference and provider_metadata — `_require_json_compatible` already rejects non-string keys but tests didn't prove it (Finding 50)
   56. Replaced `test_schema_repair_restores_not_null_constraints` (exercised the now-removed DROP TABLE path) with `test_additive_schema_repair_preserves_all_persisted_data` (proves 2 bindings with all fields survive column-drop repair) and `test_additive_repair_adds_missing_columns_preserving_existing_data` (proves missing column + index are added while preserving data) (Finding 51)
 - **Test results: 110/110 passing** after thirteenth fix pass addressing all 3 round-13 review findings.
+- Fourteenth fix pass (round 14) changes:
+  57. _repair_schema_additive now always drops and recreates all expected unique indexes instead of only creating missing ones — fixes indexes with wrong definitions (non-unique, missing WHERE predicate, wrong columns) that the old name-only check could not detect. DROP INDEX is safe because indexes are metadata, not persisted data (Finding 52)
+  58. Added null byte validation for provider_name and provider_binding_name in _validate_provider_identity — matches the null byte rejection already done in _normalize_path for path fields, preventing silent truncation in SQLite and C-level string operations (Finding 53)
+  59. Added TestAdditiveRepairFixesBrokenIndexes class with 5 tests: test_repair_fixes_non_unique_index_to_unique, test_repair_fixes_index_missing_where_predicate, test_repair_fixes_index_with_wrong_columns, test_repair_preserves_data_when_fixing_broken_indexes, test_uniqueness_enforced_after_repair_of_broken_indexes (Finding 52)
+  60. Added TestProviderIdentityEdgeCases class with 5 tests: test_reject_provider_name_with_embedded_null, test_reject_provider_binding_name_with_embedded_null, test_provider_identity_with_unicode_survives_roundtrip, test_reject_provider_metadata_with_nested_non_string_keys, test_reject_github_reference_with_nested_non_string_keys (Finding 53)
+- **Test results: 120/120 passing** after fourteenth fix pass addressing all 3 round-14 review findings.
 
 ### File List
 
@@ -303,6 +309,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema initialization and repair can still return an invalid database or delete persisted Project Bindings [hermes_project_work/bindings.py:205]
 - [x] [Review][Patch] Provider identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:528]
 - [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1079]
-- [ ] [Review][Patch] Schema initialization and repair still accept invalid Project Binding schemas and can leave uniqueness/identity constraints unenforced [hermes_project_work/bindings.py:205]
-- [ ] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:552]
-- [ ] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1878]
+- [x] [Review][Patch] Schema initialization and repair still accept invalid Project Binding schemas and can leave uniqueness/identity constraints unenforced [hermes_project_work/bindings.py:205]
+- [x] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:552]
+- [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1878]

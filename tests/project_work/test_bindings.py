@@ -2031,6 +2031,283 @@ class TestGithubReferenceJsonValidation:
         assert row_count(conn) == 0
 
 
+@requires_bindings_module
+class TestAdditiveRepairFixesBrokenIndexes:
+    """Finding 52: _repair_schema_additive must fix indexes with wrong
+    definitions, not just recreate missing indexes. An index that exists
+    by name but has the wrong definition (non-unique, missing WHERE
+    predicate, wrong columns) must be dropped and recreated with the
+    correct definition during additive repair. DROP INDEX is safe because
+    indexes are metadata, not persisted data."""
+
+    def test_repair_fixes_non_unique_index_to_unique(self, db_path):
+        """When a unique index is externally replaced with a non-unique
+        index of the same name, additive repair must drop the non-unique
+        index and recreate it as unique — restoring the uniqueness
+        constraint."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            conn_alter.execute(
+                "CREATE INDEX uq_pb_profile_cwd"
+                " ON project_bindings(profile, bound_project_cwd)"
+            )
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn2) is True
+            indexes = conn2.execute("PRAGMA index_list(project_bindings)").fetchall()
+            index_map = {row["name"]: row for row in indexes}
+            assert index_map["uq_pb_profile_cwd"]["unique"] == 1
+
+            conflict = pb.create_binding(conn2, **valid_kwargs())
+            assert conflict["conflict"] is True
+            assert "bound_project_cwd" in conflict["violations"]
+        finally:
+            conn2.close()
+
+    def test_repair_fixes_index_missing_where_predicate(self, db_path):
+        """When a partial unique index is externally replaced with a
+        full unique index (missing the WHERE predicate), additive repair
+        must drop and recreate it with the correct WHERE clause —
+        restoring partial index semantics."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_github_key")
+            conn_alter.execute(
+                "CREATE UNIQUE INDEX uq_pb_profile_github_key"
+                " ON project_bindings(profile, github_reference_key)"
+            )
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn2) is True
+
+            sql_row = conn2.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name='uq_pb_profile_github_key'"
+            ).fetchone()
+            assert sql_row and "WHERE" in sql_row["sql"].upper()
+        finally:
+            conn2.close()
+
+    def test_repair_fixes_index_with_wrong_columns(self, db_path):
+        """When a unique index is externally replaced with one covering
+        the wrong columns, additive repair must drop and recreate it
+        with the correct column composition."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            conn_alter.execute(
+                "CREATE UNIQUE INDEX uq_pb_profile_cwd"
+                " ON project_bindings(profile)"
+            )
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn2) is True
+
+            cols = conn2.execute("PRAGMA index_info(uq_pb_profile_cwd)").fetchall()
+            actual_cols = tuple(row["name"] for row in cols)
+            assert actual_cols == ("profile", "bound_project_cwd")
+        finally:
+            conn2.close()
+
+    def test_repair_preserves_data_when_fixing_broken_indexes(self, db_path):
+        """DROP INDEX + recreate must not affect persisted rows. Two
+        bindings created before repair must survive with all fields
+        intact after the repair drops and recreates all indexes."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            r1 = pb.create_binding(
+                conn1,
+                **valid_kwargs(
+                    bound_project_cwd="/tmp/first",
+                    github_reference=None,
+                    bmad_skill_dir=None,
+                    provider_name=None,
+                    provider_binding_name=None,
+                    provider_metadata=None,
+                ),
+            )
+            r2 = pb.create_binding(
+                conn1,
+                **valid_kwargs(
+                    bound_project_cwd="/tmp/second",
+                    github_reference={"owner": "Other", "repo": "Repo"},
+                    bmad_skill_dir="/tmp/other/_bmad",
+                    provider_name="other",
+                    provider_binding_name="binding",
+                    provider_metadata={"key": "value"},
+                ),
+            )
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            conn_alter.execute(
+                "CREATE INDEX uq_pb_profile_cwd"
+                " ON project_bindings(profile, bound_project_cwd)"
+            )
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_provider")
+            conn_alter.execute(
+                "CREATE INDEX uq_pb_profile_provider"
+                " ON project_bindings(profile, provider_name)"
+            )
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn2) is True
+
+            b1 = pb.get_binding(conn2, r1["id"])
+            assert b1 is not None
+            assert b1.bound_project_cwd == "/tmp/first"
+            assert b1.github_reference is None
+
+            b2 = pb.get_binding(conn2, r2["id"])
+            assert b2 is not None
+            assert b2.bound_project_cwd == "/tmp/second"
+            assert b2.github_reference == {"owner": "Other", "repo": "Repo"}
+            assert b2.provider_name == "other"
+            assert b2.provider_metadata == {"key": "value"}
+
+            assert row_count(conn2) == 2
+        finally:
+            conn2.close()
+
+    def test_uniqueness_enforced_after_repair_of_broken_indexes(self, db_path):
+        """After additive repair fixes broken indexes, uniqueness
+        constraints must be enforced — attempting to create a binding
+        that collides on a repaired dimension must return a conflict."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            original = pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            conn_alter.execute(
+                "CREATE INDEX uq_pb_profile_cwd"
+                " ON project_bindings(profile, bound_project_cwd)"
+            )
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn2) is True
+
+            conflict = pb.create_binding(conn2, **valid_kwargs())
+            assert conflict["conflict"] is True
+            assert "bound_project_cwd" in conflict["violations"]
+            assert conflict["violations"]["bound_project_cwd"] == original["id"]
+            assert row_count(conn2) == 1
+        finally:
+            conn2.close()
+
+
+@requires_bindings_module
+class TestProviderIdentityEdgeCases:
+    """Finding 53: Provider Controller Identity and JSON validation must
+    reject all forms of lossy, contradictory, or ambiguous identity data."""
+
+    def test_reject_provider_name_with_embedded_null(self, conn):
+        """provider_name containing null bytes is rejected — null bytes
+        cause silent truncation in SQLite and C-level string operations."""
+        with pytest.raises(ValueError):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="arch\x00on",
+                    provider_binding_name="default",
+                ),
+            )
+        assert row_count(conn) == 0
+
+    def test_reject_provider_binding_name_with_embedded_null(self, conn):
+        """provider_binding_name containing null bytes is rejected."""
+        with pytest.raises(ValueError):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="def\x00ault",
+                ),
+            )
+        assert row_count(conn) == 0
+
+    def test_provider_identity_with_unicode_survives_roundtrip(self, conn):
+        """Provider identity with non-ASCII characters survives a full
+        create+read round-trip without loss."""
+        result = pb.create_binding(
+            conn,
+            **valid_kwargs(
+                provider_name="архонт",
+                provider_binding_name="绑定",
+            ),
+        )
+        binding = pb.get_binding(conn, result["id"])
+        assert binding.provider_name == "архонт"
+        assert binding.provider_binding_name == "绑定"
+
+    def test_reject_provider_metadata_with_nested_non_string_keys(self, conn):
+        """provider_metadata with non-string keys in nested dicts is
+        rejected — json.dumps would silently stringify them."""
+        bad_metadata = {"nested": {42: "value"}}
+        with pytest.raises(TypeError, match="dict key"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="default",
+                    provider_metadata=bad_metadata,
+                ),
+            )
+        assert row_count(conn) == 0
+
+    def test_reject_github_reference_with_nested_non_string_keys(self, conn):
+        """github_reference with non-string keys in nested dicts is
+        rejected — same lossy stringification risk."""
+        bad_ref = {"owner": "test", "repo": "ok", "extra": {42: "value"}}
+        with pytest.raises(TypeError, match="dict key"):
+            pb.create_binding(conn, **valid_kwargs(github_reference=bad_ref))
+        assert row_count(conn) == 0
+
+
 # =============================================================================
 # Contract validation (executable now — targets the already-shipped fixture
 # package, not hermes_project_work; not gated by the module skip above)
