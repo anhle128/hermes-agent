@@ -220,6 +220,13 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   47. _binding_from_row now validates parsed JSON column types — added isinstance(dict) checks after json.loads for github_reference and provider_metadata; raises ValueError if not dict, preventing silently accepting corrupted or externally-modified JSON columns with wrong types (Finding 47)
   48. Added TestSchemaRepairVerification class with 4 tests: test_cached_connection_raises_when_repair_cannot_restore_schema (verifies RuntimeError when repair fails), test_binding_from_row_rejects_non_dict_github_reference (verifies ValueError on non-dict github_reference), test_binding_from_row_rejects_non_dict_provider_metadata (verifies ValueError on non-dict provider_metadata), test_schema_repair_under_lock_succeeds_after_lock_released (verifies repair retries on lock errors and succeeds after lock release) (Finding 48)
 - **Test results: 99/99 passing** after eleventh fix pass addressing all 3 round-11 review findings.
+- Twelfth fix pass (round 12) changes:
+  49. _verify_complete_schema now verifies NOT NULL constraints and column type affinities — added _EXPECTED_NOT_NULL_COLUMNS frozenset (profile, display_name, bound_project_cwd, created_at) and _EXPECTED_COLUMN_TYPES dict mapping each column to its expected declared type; checks PRAGMA table_info notnull and type columns; prevents a schema with correct column names but missing NOT NULL or wrong types from passing verification (Finding 49)
+  50. _validate_github_reference now calls _require_json_compatible on the github_reference dict — catches non-JSON-native types (bytes, sets, custom objects, non-finite floats, cyclic refs) in github_reference values before reaching serialization, matching the validation discipline already applied to provider_metadata (Finding 50)
+  51. Schema repair path in _init_cached_connection now uses DROP TABLE IF EXISTS before re-running SCHEMA_SQL — CREATE TABLE IF NOT EXISTS cannot fix an existing table with wrong column types or missing NOT NULL constraints; the drop-and-recreate ensures the repair restores the complete persistence contract (Finding 51)
+  52. Added TestSchemaNotNullAndTypeVerification class with 3 tests: test_verify_complete_schema_detects_missing_not_null (verifies NOT NULL check), test_verify_complete_schema_detects_wrong_column_type (verifies column type check), test_schema_repair_restores_not_null_constraints (verifies repair restores NOT NULL via drop-and-recreate) (Finding 51)
+  53. Added TestGithubReferenceJsonValidation class with 5 parametrized tests: test_reject_non_json_native_types_in_github_reference (bytes, sets, objects in extra keys) and test_reject_non_finite_floats_in_github_reference (inf, nan in extra keys) — proves github_reference JSON validation matches provider_metadata discipline (Finding 51)
+- **Test results: 107/107 passing** after twelfth fix pass addressing all 3 round-12 review findings.
 
 ### File List
 
@@ -285,6 +292,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema verification and cached repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:251]
 - [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:384]
 - [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, lock, and race boundaries [tests/project_work/test_bindings.py:1153]
-- [ ] [Review][Patch] Schema verification and repair still do not prove or restore the full persistence contract [hermes_project_work/bindings.py:251]
-- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:474]
-- [ ] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, lock, path, and race boundaries [tests/project_work/test_bindings.py:1153]
+- [x] [Review][Patch] Schema verification and repair still do not prove or restore the full persistence contract [hermes_project_work/bindings.py:251]
+- [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:474]
+- [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, lock, path, and race boundaries [tests/project_work/test_bindings.py:1153]

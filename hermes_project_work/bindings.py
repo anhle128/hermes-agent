@@ -247,11 +247,32 @@ _EXPECTED_PARTIAL_INDEX_PREDICATES: dict[str, str] = {
     "uq_pb_profile_provider": "WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL",
 }
 
+_EXPECTED_NOT_NULL_COLUMNS = frozenset({
+    "profile", "display_name", "bound_project_cwd", "created_at",
+})
+
+_EXPECTED_COLUMN_TYPES: dict[str, str] = {
+    "id": "TEXT",
+    "profile": "TEXT",
+    "display_name": "TEXT",
+    "bound_project_cwd": "TEXT",
+    "github_reference": "TEXT",
+    "github_reference_key": "TEXT",
+    "bmad_skill_dir": "TEXT",
+    "provider_name": "TEXT",
+    "provider_binding_name": "TEXT",
+    "provider_metadata": "TEXT",
+    "created_at": "INTEGER",
+}
+
 
 def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
-    """Return True iff every expected column, unique index, index column
-    composition, and partial index WHERE predicate exists.
+    """Return True iff every expected column (with correct type affinity and
+    NOT NULL constraint), unique index, index column composition, and partial
+    index WHERE predicate exists.
 
+    Column-name-only verification would miss columns recreated with wrong
+    types (e.g. INTEGER instead of TEXT) or missing NOT NULL constraints.
     Column-only verification would miss externally-dropped indexes.
     Name-only index verification would miss an index recreated without
     the UNIQUE flag.  Name+unique-only verification would miss an index
@@ -267,6 +288,14 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
     present = {row["name"] for row in rows}
     if not _EXPECTED_COLUMNS.issubset(present):
         return False
+    col_info = {row["name"]: row for row in rows}
+    for col_name in _EXPECTED_COLUMNS:
+        expected_type = _EXPECTED_COLUMN_TYPES.get(col_name)
+        if expected_type and not col_info[col_name]["type"].startswith(expected_type):
+            return False
+    for col_name in _EXPECTED_NOT_NULL_COLUMNS:
+        if not col_info[col_name]["notnull"]:
+            return False
     indexes = conn.execute("PRAGMA index_list(project_bindings)").fetchall()
     index_map = {row["name"]: row for row in indexes}
     for expected_name in _EXPECTED_UNIQUE_INDEXES:
@@ -315,7 +344,9 @@ def _init_cached_connection(conn: sqlite3.Connection) -> None:
     if not _verify_complete_schema(conn):
         for attempt in range(_SCHEMA_INIT_RETRIES):
             try:
-                conn.executescript(SCHEMA_SQL)
+                conn.executescript(
+                    "DROP TABLE IF EXISTS project_bindings;" + SCHEMA_SQL
+                )
                 break
             except sqlite3.OperationalError as exc:
                 if _is_lock_error(exc) and attempt < _SCHEMA_INIT_RETRIES - 1:
@@ -468,6 +499,7 @@ def _validate_github_reference(
         raise ValueError("github_reference['owner'] must not contain '/'")
     if "/" in repo:
         raise ValueError("github_reference['repo'] must not contain '/'")
+    _require_json_compatible(ref, "github_reference")
     return ref
 
 

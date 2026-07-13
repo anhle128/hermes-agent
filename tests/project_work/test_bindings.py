@@ -1773,6 +1773,194 @@ class TestSchemaRepairVerification:
             conn2.close()
 
 
+@requires_bindings_module
+class TestSchemaNotNullAndTypeVerification:
+    """Finding 49: _verify_complete_schema must verify NOT NULL constraints
+    and column type affinities, not just column names. A schema with correct
+    column names but missing NOT NULL or wrong types would pass name-only
+    verification while allowing invalid data."""
+
+    def test_verify_complete_schema_detects_missing_not_null(self, db_path):
+        """_verify_complete_schema returns False when a required NOT NULL
+        column is recreated without the constraint — name-only verification
+        would miss this and NULL values could be inserted into required
+        fields."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP TABLE project_bindings")
+            conn.executescript(pb.SCHEMA_SQL)
+            conn.execute("DROP TABLE project_bindings")
+            conn.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      TEXT PRIMARY KEY,
+                    profile                 TEXT NOT NULL,
+                    display_name            TEXT,
+                    bound_project_cwd       TEXT NOT NULL,
+                    github_reference        TEXT,
+                    github_reference_key    TEXT,
+                    bmad_skill_dir          TEXT,
+                    provider_name           TEXT,
+                    provider_binding_name   TEXT,
+                    provider_metadata       TEXT,
+                    created_at              INTEGER NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_cwd
+                    ON project_bindings(profile, bound_project_cwd);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_github_key
+                    ON project_bindings(profile, github_reference_key)
+                    WHERE github_reference_key IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_bmad_dir
+                    ON project_bindings(profile, bmad_skill_dir)
+                    WHERE bmad_skill_dir IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_provider
+                    ON project_bindings(profile, provider_name, provider_binding_name)
+                    WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL;
+            """)
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
+    def test_verify_complete_schema_detects_wrong_column_type(self, db_path):
+        """_verify_complete_schema returns False when a column has the wrong
+        declared type — e.g. INTEGER instead of TEXT. Name-only verification
+        would miss this and type-dependent operations would fail silently."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP TABLE project_bindings")
+            conn.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      TEXT PRIMARY KEY,
+                    profile                 TEXT NOT NULL,
+                    display_name            INTEGER NOT NULL,
+                    bound_project_cwd       TEXT NOT NULL,
+                    github_reference        TEXT,
+                    github_reference_key    TEXT,
+                    bmad_skill_dir          TEXT,
+                    provider_name           TEXT,
+                    provider_binding_name   TEXT,
+                    provider_metadata       TEXT,
+                    created_at              INTEGER NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_cwd
+                    ON project_bindings(profile, bound_project_cwd);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_github_key
+                    ON project_bindings(profile, github_reference_key)
+                    WHERE github_reference_key IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_bmad_dir
+                    ON project_bindings(profile, bmad_skill_dir)
+                    WHERE bmad_skill_dir IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_provider
+                    ON project_bindings(profile, provider_name, provider_binding_name)
+                    WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL;
+            """)
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
+    def test_schema_repair_restores_not_null_constraints(self, db_path):
+        """When NOT NULL constraints are lost (e.g. external modification),
+        the cached connection repair path re-runs executescript(SCHEMA_SQL)
+        which recreates the table with correct constraints."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP TABLE project_bindings")
+            conn_alter.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      TEXT PRIMARY KEY,
+                    profile                 TEXT,
+                    display_name            TEXT,
+                    bound_project_cwd       TEXT,
+                    github_reference        TEXT,
+                    github_reference_key    TEXT,
+                    bmad_skill_dir          TEXT,
+                    provider_name           TEXT,
+                    provider_binding_name   TEXT,
+                    provider_metadata       TEXT,
+                    created_at              INTEGER
+                );
+            """)
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn2) is True
+            for row in conn2.execute("PRAGMA table_info(project_bindings)").fetchall():
+                if row["name"] in pb._EXPECTED_NOT_NULL_COLUMNS:
+                    assert row["notnull"] == 1, (
+                        f"column {row['name']} should be NOT NULL after repair"
+                    )
+        finally:
+            conn2.close()
+
+
+@requires_bindings_module
+class TestGithubReferenceJsonValidation:
+    """Finding 50: github_reference values must be validated for JSON type
+    compatibility before persistence, matching the validation discipline
+    already applied to provider_metadata. Without this, non-JSON-native
+    types (bytes, sets, custom objects) in github_reference values would
+    reach json.dumps where the error message is less specific."""
+
+    @pytest.mark.parametrize(
+        "bad_ref",
+        [
+            {"owner": "test", "repo": "ok", "extra": b"bytes_value"},
+            {"owner": "test", "repo": "ok", "extra": {1, 2, 3}},
+            {"owner": "test", "repo": "ok", "nested": {"deep": object()}},
+        ],
+        ids=[
+            "bytes-in-extra-key",
+            "set-in-extra-key",
+            "object-in-nested",
+        ],
+    )
+    def test_reject_non_json_native_types_in_github_reference(self, conn, bad_ref):
+        """github_reference with non-JSON-native types in extra keys is
+        rejected by _require_json_compatible inside _validate_github_reference
+        — TypeError, zero rows persisted."""
+        with pytest.raises(TypeError):
+            pb.create_binding(conn, **valid_kwargs(github_reference=bad_ref))
+        assert row_count(conn) == 0
+
+    @pytest.mark.parametrize(
+        "bad_ref",
+        [
+            {"owner": "test", "repo": "ok", "extra": float("inf")},
+            {"owner": "test", "repo": "ok", "nested": {"deep": float("nan")}},
+        ],
+        ids=[
+            "inf-in-extra-key",
+            "nan-in-nested",
+        ],
+    )
+    def test_reject_non_finite_floats_in_github_reference(self, conn, bad_ref):
+        """Non-finite floats in github_reference extra keys are rejected —
+        they are not representable in JSON. Owner/repo are checked by
+        isinstance(str) first, so non-finite values must be in extra keys
+        to exercise the _require_json_compatible path."""
+        with pytest.raises(TypeError, match="non-finite float"):
+            pb.create_binding(conn, **valid_kwargs(github_reference=bad_ref))
+        assert row_count(conn) == 0
+
+
 # =============================================================================
 # Contract validation (executable now — targets the already-shipped fixture
 # package, not hermes_project_work; not gated by the module skip above)
