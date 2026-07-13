@@ -216,21 +216,36 @@ class TestP0BlockingCases:
         """2.1A-INT-019 (P0, AC2/R-002/R-005): each of the four uniqueness
         dimensions independently reports its own violated dimension and the
         colliding row's id, with exactly one persisted row and no escaped
-        sqlite3.IntegrityError."""
+        sqlite3.IntegrityError.  Each test case overrides ALL non-target
+        dimensions to be distinct, preventing non-target conflicts."""
         original = pb.create_binding(conn, **valid_kwargs())
         assert original["conflict"] is False
         original_id = original["id"]
 
         dimension_overrides = {
-            "bound_project_cwd": dict(bound_project_cwd="/tmp/hermes-agent"),
+            "bound_project_cwd": dict(
+                bound_project_cwd="/tmp/hermes-agent",
+                github_reference=None,
+                bmad_skill_dir=None,
+                provider_name=None,
+                provider_binding_name=None,
+                provider_metadata=None,
+            ),
             "github_reference_key": dict(
                 bound_project_cwd="/tmp/other-a",
                 github_reference={"owner": "NousResearch", "repo": "hermes-agent"},
+                bmad_skill_dir=None,
+                provider_name=None,
+                provider_binding_name=None,
+                provider_metadata=None,
             ),
             "bmad_skill_dir": dict(
                 bound_project_cwd="/tmp/other-b",
                 github_reference=None,
                 bmad_skill_dir="/tmp/hermes-agent/_bmad",
+                provider_name=None,
+                provider_binding_name=None,
+                provider_metadata=None,
             ),
             "provider_identity": dict(
                 bound_project_cwd="/tmp/other-c",
@@ -243,7 +258,13 @@ class TestP0BlockingCases:
         for dimension, overrides in dimension_overrides.items():
             result = pb.create_binding(conn, **valid_kwargs(**overrides))
             assert result["conflict"] is True, f"expected conflict for {dimension}"
-            assert original_id in result["violations"].values()
+            assert dimension in result["violations"], (
+                f"expected {dimension} in violations, got {list(result['violations'].keys())}"
+            )
+            assert result["violations"][dimension] == original_id
+            assert len(result["violations"]) == 1, (
+                f"expected exactly 1 violation for {dimension}, got {len(result['violations'])}"
+            )
 
         assert row_count(conn) == 1
 
@@ -675,9 +696,19 @@ class TestCrossProcessRaces:
             proc.join(timeout=10)
 
         outcomes = [json.loads(r.read_text()) for r in results if r.exists()]
-        assert len(outcomes) == 2
+        assert len(outcomes) == 2, f"expected 2 outcomes, got {len(outcomes)}"
         conflicts = [o["conflict"] for o in outcomes]
-        assert sorted(conflicts) == [False, True]
+        assert sorted(conflicts) == [False, True], (
+            f"expected exactly one success and one conflict, got {conflicts}"
+        )
+
+        conflict_outcome = next(o for o in outcomes if o["conflict"])
+        assert "violations" in conflict_outcome, (
+            "conflict outcome must include violations field"
+        )
+        assert len(conflict_outcome["violations"]) > 0, (
+            "conflict outcome must report at least one violated dimension"
+        )
 
         conn = pb.connect(db_path=db_file)
         try:
@@ -715,12 +746,22 @@ class TestCrossProcessRaces:
             proc.join(timeout=10)
 
         outcomes = [json.loads(r.read_text()) for r in results if r.exists()]
-        assert len(outcomes) == 2
-        assert all(o["conflict"] is False for o in outcomes)
+        assert len(outcomes) == 2, f"expected 2 outcomes, got {len(outcomes)}"
+        assert all(o["conflict"] is False for o in outcomes), (
+            f"expected both processes to succeed, got {outcomes}"
+        )
+        assert all("id" in o for o in outcomes), (
+            "success outcomes must include id field"
+        )
+        ids = [o["id"] for o in outcomes]
+        assert len(set(ids)) == 2, f"expected 2 distinct ids, got {ids}"
 
         conn = pb.connect(db_path=db_file)
         try:
             assert row_count(conn) == 2
+            for binding_id in ids:
+                binding = pb.get_binding(conn, binding_id)
+                assert binding is not None, f"binding {binding_id} not found after reopen"
         finally:
             conn.close()
 
@@ -1048,25 +1089,25 @@ class TestFailureInjectionAndRollback:
         self, db_path
     ):
         """2.1A-INT-043 (R-014): a second connection holding an IMMEDIATE
-        write lock causes create_binding() to fail closed (not hang forever)
-        within a short bounded timeout; releasing the lock lets a subsequent
-        create succeed."""
+        write lock causes connect() to fail closed (not hang forever) within
+        the bounded retry budget; releasing the lock lets a subsequent
+        connect() succeed."""
         blocker = sqlite3.connect(str(db_path))
         blocker.execute("PRAGMA journal_mode=WAL")
         blocker.execute("BEGIN IMMEDIATE")
 
-        conn = pb.connect(db_path=db_path)
-        conn.execute("PRAGMA busy_timeout=300")
-        try:
-            with pytest.raises(sqlite3.OperationalError):
-                pb.create_binding(conn, **valid_kwargs())
-        finally:
-            blocker.execute("ROLLBACK")
-            blocker.close()
+        with pytest.raises(sqlite3.OperationalError):
+            pb.connect(db_path=db_path)
 
-        result = pb.create_binding(conn, **valid_kwargs())
-        assert result["conflict"] is False
-        conn.close()
+        blocker.execute("ROLLBACK")
+        blocker.close()
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            result = pb.create_binding(conn, **valid_kwargs())
+            assert result["conflict"] is False
+        finally:
+            conn.close()
 
     def test_invalid_parent_path_fails_without_poisoning_cache(self, tmp_path):
         """2.1A-INT-044 (R-014): connecting to a db_path whose parent cannot

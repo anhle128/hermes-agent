@@ -140,14 +140,16 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - Implementation follows the story's scope boundary exactly: schema + migration scaffold, create, read, and persistence-level uniqueness rejection. No validation logic (Story 2.1b), no update/disable/audit (Story 2.1c), no provider binding lifecycle (Story 3.2).
 - Schema uses 4 partial unique indexes for profile-scoped uniqueness on: (profile, bound_project_cwd), (profile, github_reference_key), (profile, bmad_skill_dir), (profile, provider_name, provider_binding_name).
 - `github_reference_key` is derived as lowercased `owner/repo` for deterministic canonicalization, not JSON text equality. Owner/repo values containing `/` are rejected to prevent key ambiguity.
-- Path normalization uses `abspath + expanduser + strip trailing separator` with root preservation (`"/"` stays `"/"`). Null bytes in paths are rejected.
+- Path normalization uses `abspath + expanduser + strip trailing separator` with root preservation (`"/"` stays `"/"`). Null bytes in paths are rejected. Path inputs must be strings (no silent coercion).
 - `create_binding()` runs uniqueness pre-checks inside the IMMEDIATE transaction (alongside the INSERT) for atomic conflict detection. INSERT's unique constraints remain as a race fail-safe.
-- Schema init only swallows "database is locked"/"busy" OperationalErrors; all other schema errors propagate immediately.
-- Provider metadata requires a complete Controller Identity (both provider_name and provider_binding_name).
+- All input validation happens before schema init to prevent committing caller work before validation.
+- Schema init only swallows "database is locked"/"busy" OperationalErrors during bounded retry (5 attempts with backoff); all other schema errors propagate immediately. Connection never returns unusable.
+- Provider metadata requires a complete Controller Identity (both provider_name and provider_binding_name) and must be a dict.
 - JSON serialization validates round-trip fidelity before accepting.
 - PK collision retries raise RuntimeError after exhaustion instead of returning an empty diagnostic.
-- **Test results: 65/65 passing** after fix pass addressing all 10 review findings.
-- Fix pass changes:
+- Profile names are canonicalized (stripped of whitespace). Non-string profile values are rejected.
+- **Test results: 65/65 passing** after second fix pass addressing all 6 round-2 review findings.
+- First fix pass (round 1) changes:
   1. Moved uniqueness pre-checks inside IMMEDIATE transaction (Finding 1)
   2. Schema/migration OperationalErrors now only swallow lock/busy errors (Finding 2)
   3. Provider metadata requires Controller Identity (Finding 3)
@@ -158,6 +160,13 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   8. Removed profile-none test contradiction; rewrote injection test to monkeypatch write_txn instead of C extension (Finding 8)
   9. Fixed identity tests that reused hidden uniqueness dimensions (Finding 9)
   10. Strengthened forced-precheck test with counter-based monkeypatch (Finding 10)
+- Second fix pass (round 2) changes:
+  11. Moved all input validation before _ensure_schema() to prevent committing caller work (Finding 11)
+  12. Removed lock error swallowing in _ensure_schema; added bounded retry in connect() for WAL+schema init (Finding 12)
+  13. Added provider_metadata type validation (must be dict) (Finding 13)
+  14. Added path type validation (must be string); canonicalized profile names (Finding 14)
+  15. Fixed uniqueness dimension test to override ALL non-target dimensions (Finding 15)
+  16. Strengthened cross-process race tests to verify violations field and distinct IDs (Finding 16)
 
 ### File List
 
@@ -178,9 +187,9 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Focused acceptance suite contradicts profile semantics and cannot inject rollback failure [tests/project_work/test_bindings.py:326]
 - [x] [Review][Patch] TEA identity scenarios reuse hidden uniqueness dimensions [tests/project_work/test_bindings.py:111]
 - [x] [Review][Patch] TEA transaction, lock, restart, identity, and index tests can pass without proving their claims [tests/project_work/test_bindings.py:576]
-- [ ] [Review][Patch] Create still commits unrelated caller work before validation [hermes_project_work/bindings.py:438]
-- [ ] [Review][Patch] Locked initialization still returns an unusable connection [hermes_project_work/bindings.py:134]
-- [ ] [Review][Patch] Provider identity and metadata shape validation remains incomplete [hermes_project_work/bindings.py:316]
-- [ ] [Review][Patch] Profile and BMAD path identities remain non-canonical [hermes_project_work/bindings.py:102]
-- [ ] [Review][Patch] Uniqueness and forced-ID tests still pass through non-target conflicts [tests/project_work/test_bindings.py:215]
-- [ ] [Review][Patch] TEA rollback, restart, schema, lock, and process tests remain false-positive evidence [tests/project_work/test_bindings.py:674]
+- [x] [Review][Patch] Create still commits unrelated caller work before validation [hermes_project_work/bindings.py:438]
+- [x] [Review][Patch] Locked initialization still returns an unusable connection [hermes_project_work/bindings.py:134]
+- [x] [Review][Patch] Provider identity and metadata shape validation remains incomplete [hermes_project_work/bindings.py:316]
+- [x] [Review][Patch] Profile and BMAD path identities remain non-canonical [hermes_project_work/bindings.py:102]
+- [x] [Review][Patch] Uniqueness and forced-ID tests still pass through non-target conflicts [tests/project_work/test_bindings.py:215]
+- [x] [Review][Patch] TEA rollback, restart, schema, lock, and process tests remain false-positive evidence [tests/project_work/test_bindings.py:674]

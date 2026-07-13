@@ -104,11 +104,14 @@ def _normalize_path(path: str) -> str:
 
     Root (``"/"``) stays root — the ``or path`` guard prevents stripping it
     to an empty string.  Null bytes are rejected — they cause silent
-    truncation in SQLite and C-level path operations.
+    truncation in SQLite and C-level path operations.  Input must be a
+    string — non-string types are rejected to prevent silent coercion.
     """
+    if not isinstance(path, str):
+        raise TypeError(f"path must be a string, got {type(path).__name__}")
     if "\x00" in path:
         raise ValueError("path must not contain null bytes")
-    p = os.path.abspath(os.path.expanduser(str(path).strip()))
+    p = os.path.abspath(os.path.expanduser(path.strip()))
     return p.rstrip("/\\") or p
 
 
@@ -132,29 +135,19 @@ def _is_lock_error(exc: sqlite3.OperationalError) -> bool:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Run schema init idempotently; swallow only lock errors for deferred retry.
+    """Run schema init idempotently.
 
     ``executescript`` issues an implicit COMMIT and runs DDL, which requires
     a write lock.  When another connection holds an IMMEDIATE lock (e.g. a
-    concurrent writer), this raises ``OperationalError``.  We swallow *only*
-    lock/busy errors here so ``connect()`` can return a usable connection;
-    the schema init will be retried on the next write path
-    (``create_binding``).  All other OperationalErrors (corrupt DB,
-    permission denied, etc.) are re-raised immediately.
+    concurrent writer), this raises ``OperationalError``.  We do NOT swallow
+    errors here — if schema init fails, the connection is unusable and the
+    caller must retry.  Lock errors are retried by ``connect()``.
     """
-    try:
-        from hermes_state import apply_wal_with_fallback
+    from hermes_state import apply_wal_with_fallback
 
-        apply_wal_with_fallback(conn, db_label="project_bindings.db")
-    except sqlite3.OperationalError as exc:
-        if not _is_lock_error(exc):
-            raise
-    try:
-        conn.executescript(SCHEMA_SQL)
-        _migrate_add_optional_columns(conn)
-    except sqlite3.OperationalError as exc:
-        if not _is_lock_error(exc):
-            raise
+    apply_wal_with_fallback(conn, db_label="project_bindings.db")
+    conn.executescript(SCHEMA_SQL)
+    _migrate_add_optional_columns(conn)
 
 
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
@@ -162,10 +155,10 @@ def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
 
     Schema init is idempotent (``CREATE TABLE IF NOT EXISTS``, ``CREATE
     UNIQUE INDEX IF NOT EXISTS``) and handles file recreation after external
-    deletion.  If the DB is locked by another writer, schema init is
-    deferred to the next write path.  WAL with DELETE fallback via the
-    shared helper.  ``check_same_thread=False`` allows cross-thread use
-    (needed for concurrent-init tests).
+    deletion.  If the DB is locked by another writer, initialization is
+    retried with bounded backoff.  WAL with DELETE fallback via the shared
+    helper.  ``check_same_thread=False`` allows cross-thread use (needed for
+    concurrent-init tests).
     """
     path = db_path if db_path is not None else project_bindings_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,20 +166,33 @@ def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False)
     try:
         conn.row_factory = sqlite3.Row
-        from hermes_state import apply_wal_with_fallback
-
-        try:
-            apply_wal_with_fallback(conn, db_label="project_bindings.db")
-        except sqlite3.OperationalError as exc:
-            if not _is_lock_error(exc):
-                raise
-        conn.execute("PRAGMA foreign_keys=ON")
-        _ensure_schema(conn)
+        _init_connection_with_retry(conn)
         _INITIALIZED_PATHS.add(resolved)
     except Exception:
         conn.close()
         raise
     return conn
+
+
+_SCHEMA_INIT_RETRIES = 5
+_SCHEMA_INIT_BACKOFF_MS = 10
+
+
+def _init_connection_with_retry(conn: sqlite3.Connection) -> None:
+    """Retry WAL + schema init on lock errors; raise on all other failures."""
+    from hermes_state import apply_wal_with_fallback
+
+    for attempt in range(_SCHEMA_INIT_RETRIES):
+        try:
+            apply_wal_with_fallback(conn, db_label="project_bindings.db")
+            conn.execute("PRAGMA foreign_keys=ON")
+            _ensure_schema(conn)
+            return
+        except sqlite3.OperationalError as exc:
+            if _is_lock_error(exc) and attempt < _SCHEMA_INIT_RETRIES - 1:
+                time.sleep(_SCHEMA_INIT_BACKOFF_MS * (attempt + 1) / 1000.0)
+                continue
+            raise
 
 
 @contextlib.contextmanager
@@ -269,14 +275,20 @@ def _binding_from_row(row: sqlite3.Row) -> ProjectBinding:
 
 
 def _resolve_profile(profile: Optional[str]) -> str:
-    """Resolve ``None`` → active profile name, falling back to ``"default"``."""
+    """Resolve ``None`` → active profile name, falling back to ``"default"``.
+
+    The resolved name is stripped of leading/trailing whitespace for
+    canonical form.  Non-string types are rejected.
+    """
     if profile is None:
         try:
             from hermes_cli.profiles import get_active_profile_name
-            return get_active_profile_name()
+            return get_active_profile_name().strip()
         except Exception:
             return "default"
-    return profile
+    if not isinstance(profile, str):
+        raise TypeError(f"profile must be a string, got {type(profile).__name__}")
+    return profile.strip()
 
 
 def _require_nonblank_str(value: object, field_name: str) -> str:
@@ -329,11 +341,16 @@ def _validate_provider_identity(
             "provider_name and provider_binding_name must both be "
             "present and non-blank, or both absent"
         )
-    if provider_metadata is not None and not (has_name and has_binding):
-        raise ValueError(
-            "provider_metadata requires both provider_name and "
-            "provider_binding_name (Controller Identity)"
-        )
+    if provider_metadata is not None:
+        if not isinstance(provider_metadata, dict):
+            raise TypeError(
+                f"provider_metadata must be a dict, got {type(provider_metadata).__name__}"
+            )
+        if not has_name or not has_binding:
+            raise ValueError(
+                "provider_metadata requires both provider_name and "
+                "provider_binding_name (Controller Identity)"
+            )
 
 
 def _serialize_json(value: dict, field_name: str) -> str:
@@ -435,8 +452,6 @@ def create_binding(
     on any uniqueness collision.  Raises ``ValueError``/``TypeError`` for
     invalid inputs *before* any SQL mutation.
     """
-    _ensure_schema(conn)
-
     resolved_profile = _resolve_profile(profile)
     _require_nonblank_str(resolved_profile, "profile")
     _require_nonblank_str(display_name, "display_name")
@@ -466,6 +481,8 @@ def create_binding(
         if provider_metadata is not None
         else None
     )
+
+    _ensure_schema(conn)
 
     now = _now()
 
