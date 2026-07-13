@@ -158,3 +158,16 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - `hermes_project_work/bindings.py` (Project Binding schema, connection management, CRUD, uniqueness enforcement)
 - `tests/project_work/__init__.py` (already existed)
 - `tests/project_work/test_bindings.py` (already existed with red-phase acceptance tests)
+
+### Review Findings
+
+- [ ] [Review][Patch] Create path can commit caller work and checks uniqueness outside the IMMEDIATE transaction [hermes_project_work/bindings.py:407]
+- [ ] [Review][Patch] Schema and migration OperationalErrors are silently hidden [hermes_project_work/bindings.py:135]
+- [ ] [Review][Patch] Provider metadata persists without a valid Controller Identity [hermes_project_work/bindings.py:299]
+- [ ] [Review][Patch] Identity paths and profiles accept invalid or non-canonical values [hermes_project_work/bindings.py:102]
+- [ ] [Review][Patch] GitHub reference key is ambiguous for delimiter-bearing components [hermes_project_work/bindings.py:112]
+- [ ] [Review][Patch] JSON inputs can change during an accepted persistence round trip [hermes_project_work/bindings.py:316]
+- [ ] [Review][Patch] Primary-key collisions retry into an empty conflict diagnostic [hermes_project_work/bindings.py:441]
+- [ ] [Review][Patch] Focused acceptance suite contradicts profile semantics and cannot inject rollback failure [tests/project_work/test_bindings.py:326]
+- [ ] [Review][Patch] TEA identity scenarios reuse hidden uniqueness dimensions [tests/project_work/test_bindings.py:111]
+- [ ] [Review][Patch] TEA transaction, lock, restart, identity, and index tests can pass without proving their claims [tests/project_work/test_bindings.py:576]
