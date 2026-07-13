@@ -255,3 +255,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Provider identity and JSON validation still permits type loss and inconsistent controller identities [hermes_project_work/bindings.py:417]
 - [x] [Review][Patch] TEA persistence evidence still misses real rollback/schema/race boundaries [tests/project_work/test_bindings.py:1092]
 - [x] [Review][Patch] Profile-scoped listing bypasses profile normalization [hermes_project_work/bindings.py:704]
+- [ ] [Review][Patch] Cached schema verification and repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:238]
+- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:427]
+- [ ] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:714]
