@@ -208,3 +208,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Blank BMAD paths and Windows roots still normalize to incorrect identities [hermes_project_work/bindings.py:102]
 - [x] [Review][Patch] Primary-key collision handling still retries and its test never reaches the path [hermes_project_work/bindings.py:489]
 - [x] [Review][Patch] TEA tests still provide false-positive import, race, rollback, restart, and schema evidence [tests/project_work/test_bindings.py:65]
+- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed or type-losing values [hermes_project_work/bindings.py:344]
+- [ ] [Review][Patch] Primary-key collisions still retry and raise instead of returning a machine-readable conflict [hermes_project_work/bindings.py:511]
+- [ ] [Review][Patch] Per-path schema initialization cache is populated but never consulted [hermes_project_work/bindings.py:91]
+- [ ] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
