@@ -295,3 +295,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema verification and repair still do not prove or restore the full persistence contract [hermes_project_work/bindings.py:251]
 - [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:474]
 - [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, lock, path, and race boundaries [tests/project_work/test_bindings.py:1153]
+- [ ] [Review][Patch] Schema initialization and repair can still return an invalid database or delete persisted Project Bindings [hermes_project_work/bindings.py:205]
+- [ ] [Review][Patch] Provider identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:528]
+- [ ] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1079]
