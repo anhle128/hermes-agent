@@ -241,9 +241,11 @@ def _init_cached_connection(conn: sqlite3.Connection) -> None:
     Skips redundant ``executescript(SCHEMA_SQL)`` for performance, but
     verifies the complete schema (all expected columns) by probing
     ``PRAGMA table_info``.  If any column is missing (e.g. external
-    modification), re-runs the full schema init.  Always runs
-    ``_migrate_add_optional_columns()`` so the migration seam fires on
-    every ``connect()``.
+    modification), re-runs the full schema init with bounded lock-error
+    retry — the cold path has the same retry via
+    ``_init_connection_with_retry``, but the warm path was missing it.
+    Always runs ``_migrate_add_optional_columns()`` so the migration seam
+    fires on every ``connect()``.
     """
     from hermes_state import apply_wal_with_fallback
 
@@ -251,7 +253,15 @@ def _init_cached_connection(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA foreign_keys=ON")
 
     if not _verify_complete_schema(conn):
-        conn.executescript(SCHEMA_SQL)
+        for attempt in range(_SCHEMA_INIT_RETRIES):
+            try:
+                conn.executescript(SCHEMA_SQL)
+                break
+            except sqlite3.OperationalError as exc:
+                if _is_lock_error(exc) and attempt < _SCHEMA_INIT_RETRIES - 1:
+                    time.sleep(_SCHEMA_INIT_BACKOFF_MS * (attempt + 1) / 1000.0)
+                    continue
+                raise
 
     _migrate_add_optional_columns(conn)
 
@@ -419,7 +429,16 @@ def _validate_provider_identity(
     provider_name: Optional[str],
     provider_binding_name: Optional[str],
     provider_metadata: Optional[dict] = None,
-) -> None:
+) -> tuple[Optional[str], Optional[str]]:
+    """Validate and normalize provider identity.
+
+    Returns the normalized ``(provider_name, provider_binding_name)`` tuple
+    — stripped, blank→None — so the caller uses the same values that were
+    validated.  Checking consistency on raw values while storing normalized
+    values would allow partial identities through (e.g. ``" "`` +
+    ``"archon"`` passes a truthy check but normalizes to ``None`` +
+    ``"archon"``).
+    """
     if provider_name is not None and not isinstance(provider_name, str):
         raise TypeError(
             f"provider_name must be a string or None, got {type(provider_name).__name__}"
@@ -428,13 +447,17 @@ def _validate_provider_identity(
         raise TypeError(
             f"provider_binding_name must be a string or None, got {type(provider_binding_name).__name__}"
         )
-    has_name = (
-        isinstance(provider_name, str) and bool(provider_name.strip())
+    pn = provider_name.strip() if isinstance(provider_name, str) else None
+    if pn == "":
+        pn = None
+    pbn = (
+        provider_binding_name.strip()
+        if isinstance(provider_binding_name, str)
+        else None
     )
-    has_binding = (
-        isinstance(provider_binding_name, str) and bool(provider_binding_name.strip())
-    )
-    if has_name != has_binding:
+    if pbn == "":
+        pbn = None
+    if (pn is None) != (pbn is None):
         raise ValueError(
             "provider_name and provider_binding_name must both be "
             "present and non-blank, or both absent"
@@ -444,12 +467,13 @@ def _validate_provider_identity(
             raise TypeError(
                 f"provider_metadata must be a dict, got {type(provider_metadata).__name__}"
             )
-        if not has_name or not has_binding:
+        if pn is None or pbn is None:
             raise ValueError(
                 "provider_metadata requires both provider_name and "
                 "provider_binding_name (Controller Identity)"
             )
         _require_json_compatible(provider_metadata, "provider_metadata")
+    return pn, pbn
 
 
 def _serialize_json(value: dict, field_name: str) -> str:
@@ -558,24 +582,13 @@ def create_binding(
     _require_nonblank_str(bound_project_cwd, "bound_project_cwd")
 
     gh_ref = _validate_github_reference(github_reference)
-    _validate_provider_identity(provider_name, provider_binding_name, provider_metadata)
+    pn, pbn = _validate_provider_identity(provider_name, provider_binding_name, provider_metadata)
 
     normalized_cwd = _normalize_path(bound_project_cwd)
     normalized_bmad = (
         _normalize_path(bmad_skill_dir) if bmad_skill_dir is not None else None
     )
     gh_key = _github_reference_key(gh_ref) if gh_ref else None
-
-    pn = provider_name.strip() if isinstance(provider_name, str) else None
-    if pn == "":
-        pn = None
-    pbn = (
-        provider_binding_name.strip()
-        if isinstance(provider_binding_name, str)
-        else None
-    )
-    if pbn == "":
-        pbn = None
 
     gh_json = (
         _serialize_json(gh_ref, "github_reference") if gh_ref else None

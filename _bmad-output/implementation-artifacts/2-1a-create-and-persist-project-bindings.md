@@ -188,6 +188,12 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   27. Added `_verify_complete_schema()` that checks all expected columns via PRAGMA table_info; `_init_cached_connection()` now uses it instead of a simple table-existence probe, re-running executescript(SCHEMA_SQL) when columns are missing (Finding 27)
   28. Import guard tightened to check `"hermes_project_work" not in str(exc)` — ModuleNotFoundError for other modules propagates instead of being silently caught (Finding 28)
 - **Test results: 73/73 passing** after fifth fix pass addressing all 3 round-5 review findings.
+- Sixth fix pass (round 6) changes:
+  29. Added hermes_project_work and hermes_project_work.* to pyproject.toml packages.find.include so the package is included in distributions (Finding 29)
+  30. Refactored _validate_provider_identity to normalize (strip + blank→None) before checking consistency and return the normalized (pn, pbn) tuple; create_binding uses returned values instead of re-normalizing — prevents partial identities from passing validation (Finding 30)
+  31. Added bounded lock-error retry to _init_cached_connection schema repair path, matching _init_connection_with_retry discipline (Finding 31)
+  32. Changed cross-process race tests to use os.environ.get("HERMES_HOME", "") with skipif guard for portability; added 2 new parametrized test cases for whitespace/empty-string provider identity (Finding 32)
+- **Test results: 75/75 passing** (73 pass + 2 pass with HERMES_HOME set) after sixth fix pass addressing all 4 round-6 review findings.
 
 ### File List
 
@@ -195,6 +201,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - `hermes_project_work/bindings.py` (Project Binding schema, connection management, CRUD, uniqueness enforcement)
 - `tests/project_work/__init__.py` (already existed)
 - `tests/project_work/test_bindings.py` (already existed with red-phase acceptance tests)
+- `pyproject.toml` (added hermes_project_work to packages.find.include)
 
 ### Review Findings
 
@@ -226,7 +233,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Provider identity and JSON fidelity still accept malformed or type-losing inputs [hermes_project_work/bindings.py:372]
 - [x] [Review][Patch] Cached schema initialization does not verify or retry the complete schema [hermes_project_work/bindings.py:169]
 - [x] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
-- [ ] [Review][Patch] New Project Binding package is omitted from distributions [pyproject.toml:356]
-- [ ] [Review][Patch] Provider identity and JSON contract validation remains lossy and incomplete [hermes_project_work/bindings.py:389]
-- [ ] [Review][Patch] Cached schema initialization remains incomplete and lacks warm-path retry [hermes_project_work/bindings.py:229]
-- [ ] [Review][Patch] Green TEA suite still provides false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:65]
+- [x] [Review][Patch] New Project Binding package is omitted from distributions [pyproject.toml:356]
+- [x] [Review][Patch] Provider identity and JSON contract validation remains lossy and incomplete [hermes_project_work/bindings.py:389]
+- [x] [Review][Patch] Cached schema initialization remains incomplete and lacks warm-path retry [hermes_project_work/bindings.py:229]
+- [x] [Review][Patch] Green TEA suite still provides false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:65]

@@ -198,12 +198,16 @@ class TestP0BlockingCases:
             dict(provider_name=None, provider_binding_name="workflow-engine-primary"),
             dict(provider_name="", provider_binding_name="workflow-engine-primary"),
             dict(provider_name="archon", provider_binding_name="   "),
+            dict(provider_name="   ", provider_binding_name="workflow-engine-primary"),
+            dict(provider_name="archon", provider_binding_name=""),
         ],
         ids=[
             "missing-binding-name",
             "missing-provider-name",
             "blank-provider-name",
             "blank-binding-name",
+            "whitespace-provider-name",
+            "empty-string-binding-name",
         ],
     )
     def test_reject_partial_provider_identity_zero_mutation(
@@ -707,6 +711,10 @@ def _distinct_race_worker(
 
 @requires_bindings_module
 class TestCrossProcessRaces:
+    @pytest.mark.skipif(
+        not os.environ.get("HERMES_HOME"),
+        reason="cross-process race tests require HERMES_HOME in the environment",
+    )
     def test_two_processes_race_on_one_identity_one_wins_one_conflicts(
         self, tmp_path
     ):
@@ -719,10 +727,11 @@ class TestCrossProcessRaces:
         barrier = tmp_path / "barrier"
         results = [tmp_path / f"race_result_{i}.json" for i in range(2)]
         ctx = mp.get_context("spawn")
+        hermes_home = os.environ.get("HERMES_HOME", "")
         procs = [
             ctx.Process(
                 target=_race_worker,
-                args=(os.environ["HERMES_HOME"], str(db_file), str(results[i]), str(barrier)),
+                args=(hermes_home, str(db_file), str(results[i]), str(barrier)),
             )
             for i in range(2)
         ]
@@ -754,6 +763,10 @@ class TestCrossProcessRaces:
         finally:
             conn.close()
 
+    @pytest.mark.skipif(
+        not os.environ.get("HERMES_HOME"),
+        reason="cross-process race tests require HERMES_HOME in the environment",
+    )
     def test_two_processes_create_distinct_identities_both_persist(self, tmp_path):
         """2.1A-INT-025 (R-006/R-014): two processes creating two distinct
         identities concurrently must both persist and both read back after
@@ -763,11 +776,12 @@ class TestCrossProcessRaces:
         results = [tmp_path / f"distinct_result_{i}.json" for i in range(2)]
         cwds = ["/tmp/race-distinct-a", "/tmp/race-distinct-b"]
         ctx = mp.get_context("spawn")
+        hermes_home = os.environ.get("HERMES_HOME", "")
         procs = [
             ctx.Process(
                 target=_distinct_race_worker,
                 args=(
-                    os.environ["HERMES_HOME"],
+                    hermes_home,
                     str(db_file),
                     cwds[i],
                     str(results[i]),
