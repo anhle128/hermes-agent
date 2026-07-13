@@ -237,3 +237,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Provider identity and JSON contract validation remains lossy and incomplete [hermes_project_work/bindings.py:389]
 - [x] [Review][Patch] Cached schema initialization remains incomplete and lacks warm-path retry [hermes_project_work/bindings.py:229]
 - [x] [Review][Patch] Green TEA suite still provides false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:65]
+- [ ] [Review][Patch] Cached schema initialization still accepts incomplete schemas and does not perform additive repair [hermes_project_work/bindings.py:229]
+- [ ] [Review][Patch] Provider identity and JSON validation still admits malformed or type-losing values [hermes_project_work/bindings.py:402]
+- [ ] [Review][Patch] TEA evidence still skips race tests and does not prove rollback/schema relationships [tests/project_work/test_bindings.py:714]
