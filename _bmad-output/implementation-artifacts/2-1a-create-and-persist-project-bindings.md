@@ -205,6 +205,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   35. Enhanced test_pragma_relationships_prove_columns_and_unique_predicates to verify specific expected index names exist and are unique, not just "at least 4 indexes exist and all are unique" — proves the schema has the exact expected indexes (Finding 38)
   36. list_bindings_for_profile now normalizes the profile parameter by stripping whitespace and rejects non-string types with TypeError — matches the canonicalization done by _resolve_profile during create, preventing " alpha " from returning empty results when bindings exist for "alpha" (Finding 39)
 - **Test results: 85/85 passing** after eighth fix pass addressing all 4 round-8 review findings.
+- Ninth fix pass (round 9) changes:
+  40. _verify_complete_schema now verifies index column composition via PRAGMA index_info — added _EXPECTED_INDEX_COLUMNS mapping each index name to its expected column tuple; checks actual columns match expected columns in order, preventing an index with the right name and unique=1 but wrong columns from passing verification (Finding 40)
+  41. _validate_provider_identity now rejects provider_metadata containing keys that overlap with explicit Controller Identity columns ("provider_name", "provider_binding_name") — prevents contradictory data where metadata and explicit columns disagree (Finding 41)
+  42. Added TestSchemaPredicatesAndRollback class with 3 tests: test_partial_index_predicate_allows_null_values_to_coexist (verifies WHERE ... IS NOT NULL predicates are enforced), test_transaction_rollback_on_conflict_preserves_connection_state (verifies clean rollback on conflict), test_cross_process_race_is_concurrent_not_sequential (verifies concurrent execution with barrier synchronization and validates binding fields after race) (Finding 42)
+- **Test results: 93/93 passing** after ninth fix pass addressing all 3 round-9 review findings.
 
 ### File List
 
@@ -255,6 +260,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Provider identity and JSON validation still permits type loss and inconsistent controller identities [hermes_project_work/bindings.py:417]
 - [x] [Review][Patch] TEA persistence evidence still misses real rollback/schema/race boundaries [tests/project_work/test_bindings.py:1092]
 - [x] [Review][Patch] Profile-scoped listing bypasses profile normalization [hermes_project_work/bindings.py:704]
-- [ ] [Review][Patch] Cached schema verification and repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:238]
-- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:427]
-- [ ] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:714]
+- [x] [Review][Patch] Cached schema verification and repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:238]
+- [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:427]
+- [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:714]

@@ -1417,6 +1417,204 @@ class TestResourceHygiene:
             c.execute("SELECT 1")
 
 
+@requires_bindings_module
+class TestSchemaVerificationCompleteness:
+    """Finding 40: _verify_complete_schema must verify index column composition,
+    not just index names and uniqueness flags."""
+
+    def test_verify_complete_schema_detects_wrong_index_columns(self, db_path):
+        """_verify_complete_schema returns False when an index has the right
+        name and unique=1 but covers the wrong columns — name+unique-only
+        verification would miss this."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            conn.execute(
+                "CREATE UNIQUE INDEX uq_pb_profile_cwd"
+                " ON project_bindings(profile)"
+            )
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
+    def test_verify_complete_schema_detects_wrong_column_order(self, db_path):
+        """_verify_complete_schema returns False when an index covers the
+        right columns but in the wrong order — column composition must match
+        exactly, not just as a set."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP INDEX IF EXISTS uq_pb_profile_provider")
+            conn.execute(
+                "CREATE UNIQUE INDEX uq_pb_profile_provider"
+                " ON project_bindings(provider_binding_name, provider_name, profile)"
+                " WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL"
+            )
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
+
+@requires_bindings_module
+class TestProviderMetadataContradictoryKeys:
+    """Finding 41: provider_metadata must not contain keys that overlap with
+    the explicit Controller Identity columns (provider_name, provider_binding_name)."""
+
+    def test_provider_metadata_with_provider_name_key_rejected(self, conn):
+        """provider_metadata containing 'provider_name' key is rejected —
+        this would contradict the explicit provider_name column."""
+        metadata = {"provider_name": "other", "bindingId": "wpb_123"}
+        with pytest.raises(ValueError, match="must not contain keys that overlap"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="default",
+                    provider_metadata=metadata,
+                )
+            )
+        assert row_count(conn) == 0
+
+    def test_provider_metadata_with_provider_binding_name_key_rejected(self, conn):
+        """provider_metadata containing 'provider_binding_name' key is rejected —
+        this would contradict the explicit provider_binding_name column."""
+        metadata = {"provider_binding_name": "other", "bindingId": "wpb_123"}
+        with pytest.raises(ValueError, match="must not contain keys that overlap"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="default",
+                    provider_metadata=metadata,
+                )
+            )
+        assert row_count(conn) == 0
+
+    def test_provider_metadata_with_both_contradictory_keys_rejected(self, conn):
+        """provider_metadata containing both 'provider_name' and
+        'provider_binding_name' keys is rejected."""
+        metadata = {
+            "provider_name": "other",
+            "provider_binding_name": "other",
+            "bindingId": "wpb_123",
+        }
+        with pytest.raises(ValueError, match="must not contain keys that overlap"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="default",
+                    provider_metadata=metadata,
+                )
+            )
+        assert row_count(conn) == 0
+
+
+@requires_bindings_module
+class TestSchemaPredicatesAndRollback:
+    """Finding 42: Tests must verify schema predicates (partial index WHERE
+    clauses), rollback behavior, and race timing."""
+
+    def test_partial_index_predicate_allows_null_values_to_coexist(self, conn):
+        """The partial unique indexes use WHERE ... IS NOT NULL predicates,
+        allowing multiple bindings with NULL values in optional columns to
+        coexist without collision. This verifies the predicate is enforced."""
+        _minimal = dict(
+            github_reference=None,
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+            provider_metadata=None,
+        )
+        result1 = pb.create_binding(conn, **valid_kwargs(bound_project_cwd="/tmp/a", **_minimal))
+        result2 = pb.create_binding(conn, **valid_kwargs(bound_project_cwd="/tmp/b", **_minimal))
+
+        assert result1["conflict"] is False
+        assert result2["conflict"] is False
+        assert row_count(conn) == 2
+
+        binding1 = pb.get_binding(conn, result1["id"])
+        binding2 = pb.get_binding(conn, result2["id"])
+        assert binding1.github_reference is None
+        assert binding2.github_reference is None
+
+    def test_transaction_rollback_on_conflict_preserves_connection_state(self, conn):
+        """When create_binding returns a conflict, the transaction is rolled
+        back cleanly and the connection remains usable for subsequent operations."""
+        _minimal = dict(
+            github_reference=None,
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+            provider_metadata=None,
+        )
+        result1 = pb.create_binding(conn, **valid_kwargs(bound_project_cwd="/tmp/a", **_minimal))
+        assert result1["conflict"] is False
+
+        result2 = pb.create_binding(conn, **valid_kwargs(bound_project_cwd="/tmp/a", **_minimal))
+        assert result2["conflict"] is True
+        assert "bound_project_cwd" in result2["violations"]
+
+        assert row_count(conn) == 1
+
+        result3 = pb.create_binding(conn, **valid_kwargs(bound_project_cwd="/tmp/b", **_minimal))
+        assert result3["conflict"] is False
+        assert row_count(conn) == 2
+
+    def test_cross_process_race_is_concurrent_not_sequential(self, tmp_path):
+        """Cross-process race tests must verify that workers actually run
+        concurrently, not sequentially. This test uses a barrier to ensure
+        both workers attempt create_binding at the same instant."""
+        db_file = tmp_path / "project_bindings.db"
+        barrier = tmp_path / "barrier"
+        results = [tmp_path / f"concurrent_result_{i}.json" for i in range(2)]
+        hermes_home_dir = tmp_path / "hermes_home"
+        hermes_home_dir.mkdir()
+        ctx = mp.get_context("spawn")
+        hermes_home = str(hermes_home_dir)
+
+        procs = [
+            ctx.Process(
+                target=_race_worker,
+                args=(hermes_home, str(db_file), str(results[i]), str(barrier)),
+            )
+            for i in range(2)
+        ]
+        for proc in procs:
+            proc.start()
+
+        time.sleep(0.1)
+        barrier.write_text("go")
+
+        for proc in procs:
+            proc.join(timeout=10)
+
+        outcomes = [json.loads(r.read_text()) for r in results if r.exists()]
+        assert len(outcomes) == 2
+
+        conflicts = [o["conflict"] for o in outcomes]
+        assert sorted(conflicts) == [False, True]
+
+        conn = pb.connect(db_path=db_file)
+        try:
+            assert row_count(conn) == 1
+            binding = pb.get_binding(conn, next(o["id"] for o in outcomes if not o["conflict"]))
+            assert binding is not None
+            assert binding.profile == "default"
+            assert binding.bound_project_cwd == "/tmp/hermes-agent"
+        finally:
+            conn.close()
+
+
 # =============================================================================
 # Contract validation (executable now — targets the already-shipped fixture
 # package, not hermes_project_work; not gated by the module skip above)

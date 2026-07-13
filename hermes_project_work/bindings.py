@@ -234,15 +234,23 @@ _EXPECTED_UNIQUE_INDEXES = frozenset({
     "uq_pb_profile_provider",
 })
 
+_EXPECTED_INDEX_COLUMNS: dict[str, tuple[str, ...]] = {
+    "uq_pb_profile_cwd": ("profile", "bound_project_cwd"),
+    "uq_pb_profile_github_key": ("profile", "github_reference_key"),
+    "uq_pb_profile_bmad_dir": ("profile", "bmad_skill_dir"),
+    "uq_pb_profile_provider": ("profile", "provider_name", "provider_binding_name"),
+}
+
 
 def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
-    """Return True iff every expected column and unique index exists.
+    """Return True iff every expected column, unique index, and index
+    column composition exists.
 
-    Column-only verification would miss externally-dropped indexes — the
-    uniqueness constraints would silently vanish while the table appeared
-    healthy.  Name-only index verification would miss an index recreated
-    without the UNIQUE flag or without the partial-index WHERE clause —
-    the name would match but the constraint would be broken.
+    Column-only verification would miss externally-dropped indexes.
+    Name-only index verification would miss an index recreated without
+    the UNIQUE flag.  Name+unique-only verification would miss an index
+    recreated with the right name and unique flag but covering the wrong
+    columns (e.g. a single-column index where a composite is required).
     """
     rows = conn.execute("PRAGMA table_info(project_bindings)").fetchall()
     if not rows:
@@ -256,6 +264,13 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
         if expected_name not in index_map:
             return False
         if not index_map[expected_name]["unique"]:
+            return False
+        cols = conn.execute(
+            f"PRAGMA index_info({expected_name})"
+        ).fetchall()
+        actual_cols = tuple(row["name"] for row in cols)
+        expected_cols = _EXPECTED_INDEX_COLUMNS[expected_name]
+        if actual_cols != expected_cols:
             return False
     return True
 
@@ -508,6 +523,12 @@ def _validate_provider_identity(
             raise ValueError(
                 "provider_metadata requires both provider_name and "
                 "provider_binding_name (Controller Identity)"
+            )
+        contradictory_keys = {"provider_name", "provider_binding_name"} & set(provider_metadata.keys())
+        if contradictory_keys:
+            raise ValueError(
+                f"provider_metadata must not contain keys that overlap with "
+                f"explicit Controller Identity columns: {sorted(contradictory_keys)}"
             )
         _require_json_compatible(provider_metadata, "provider_metadata")
     return pn, pbn
