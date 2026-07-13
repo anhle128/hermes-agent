@@ -303,3 +303,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema initialization and repair can still return an invalid database or delete persisted Project Bindings [hermes_project_work/bindings.py:205]
 - [x] [Review][Patch] Provider identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:528]
 - [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1079]
+- [ ] [Review][Patch] Schema initialization and repair still accept invalid Project Binding schemas and can leave uniqueness/identity constraints unenforced [hermes_project_work/bindings.py:205]
+- [ ] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy and contradictory persisted identities [hermes_project_work/bindings.py:552]
+- [ ] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1878]
