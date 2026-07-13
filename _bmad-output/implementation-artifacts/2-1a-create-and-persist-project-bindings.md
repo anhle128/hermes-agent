@@ -263,3 +263,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Cached schema verification and repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:238]
 - [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:427]
 - [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:714]
+- [ ] [Review][Patch] Cached schema verification and repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:245]
+- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, cyclic, and contradictory data [hermes_project_work/bindings.py:442]
+- [ ] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:1132]
