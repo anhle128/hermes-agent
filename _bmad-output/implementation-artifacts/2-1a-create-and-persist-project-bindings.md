@@ -215,6 +215,11 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   44. _require_json_compatible now detects and rejects cyclic references — added _seen parameter (set of object ids) to track visited containers; raises TypeError with "cyclic reference" message instead of RecursionError on cyclic dicts/lists (Finding 44)
   45. Added test_verify_complete_schema_detects_missing_where_clause and test_reject_cyclic_reference_in_provider_metadata to prove schema WHERE clause verification and cyclic reference detection (Finding 45)
 - **Test results: 93/93 passing** after ninth fix pass addressing all 3 round-9 review findings.
+- Eleventh fix pass (round 11) changes:
+  46. _init_cached_connection now verifies schema after repair — added _verify_complete_schema(conn) call after executescript(SCHEMA_SQL) repair loop; raises RuntimeError with "schema repair completed but verification still failed" if schema is still incomplete, preventing silently-broken connections (Finding 46)
+  47. _binding_from_row now validates parsed JSON column types — added isinstance(dict) checks after json.loads for github_reference and provider_metadata; raises ValueError if not dict, preventing silently accepting corrupted or externally-modified JSON columns with wrong types (Finding 47)
+  48. Added TestSchemaRepairVerification class with 4 tests: test_cached_connection_raises_when_repair_cannot_restore_schema (verifies RuntimeError when repair fails), test_binding_from_row_rejects_non_dict_github_reference (verifies ValueError on non-dict github_reference), test_binding_from_row_rejects_non_dict_provider_metadata (verifies ValueError on non-dict provider_metadata), test_schema_repair_under_lock_succeeds_after_lock_released (verifies repair retries on lock errors and succeeds after lock release) (Finding 48)
+- **Test results: 99/99 passing** after eleventh fix pass addressing all 3 round-11 review findings.
 
 ### File List
 
@@ -277,6 +282,6 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema verification and cached repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:251]
 - [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:384]
 - [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, and race boundaries [tests/project_work/test_bindings.py:1153]
-- [ ] [Review][Patch] Schema verification and cached repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:251]
-- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:384]
-- [ ] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, lock, and race boundaries [tests/project_work/test_bindings.py:1153]
+- [x] [Review][Patch] Schema verification and cached repair still do not prove or restore the complete persistence contract [hermes_project_work/bindings.py:251]
+- [x] [Review][Patch] Provider identity and JSON validation still accepts malformed, type-losing, and contradictory data [hermes_project_work/bindings.py:384]
+- [x] [Review][Patch] TEA persistence evidence still misses schema predicate, rollback, lock, and race boundaries [tests/project_work/test_bindings.py:1153]

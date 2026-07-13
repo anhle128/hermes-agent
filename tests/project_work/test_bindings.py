@@ -1652,6 +1652,127 @@ class TestSchemaPredicatesAndRollback:
             conn.close()
 
 
+@requires_bindings_module
+class TestSchemaRepairVerification:
+    """Finding 46/47/48: Schema repair must verify its own outcome, JSON
+    column reads must validate types, and repair must work under lock."""
+
+    def test_cached_connection_raises_when_repair_cannot_restore_schema(
+        self, db_path, monkeypatch
+    ):
+        """Finding 46: _init_cached_connection must raise RuntimeError when
+        schema repair executescript completes but _verify_complete_schema still
+        returns False — silently returning a broken connection would let
+        subsequent operations fail with confusing 'no such table' errors."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP TABLE project_bindings")
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        real_verify = pb._verify_complete_schema
+        call_count = {"n": 0}
+
+        def _always_broken(conn):
+            call_count["n"] += 1
+            if call_count["n"] <= 1:
+                return False
+            return False
+
+        monkeypatch.setattr(pb, "_verify_complete_schema", _always_broken)
+
+        with pytest.raises(RuntimeError, match="schema repair completed but verification still failed"):
+            pb.connect(db_path=db_path)
+
+    def test_binding_from_row_rejects_non_dict_github_reference(self, conn):
+        """Finding 47: _binding_from_row must validate that parsed JSON columns
+        are dicts. If an external write stores a non-dict JSON value (e.g., a
+        string or number), get_binding must raise ValueError rather than
+        silently returning a ProjectBinding with wrong types."""
+        result = pb.create_binding(conn, **valid_kwargs())
+
+        conn.execute(
+            "UPDATE project_bindings SET github_reference = ? WHERE id = ?",
+            (json.dumps("not a dict"), result["id"]),
+        )
+        conn.commit()
+
+        with pytest.raises(ValueError, match="github_reference must be a dict"):
+            pb.get_binding(conn, result["id"])
+
+    def test_binding_from_row_rejects_non_dict_provider_metadata(self, conn):
+        """Finding 47: _binding_from_row must validate that provider_metadata
+        is a dict after JSON parsing, not just any JSON value."""
+        result = pb.create_binding(conn, **valid_kwargs())
+
+        conn.execute(
+            "UPDATE project_bindings SET provider_metadata = ? WHERE id = ?",
+            (json.dumps([1, 2, 3]), result["id"]),
+        )
+        conn.commit()
+
+        with pytest.raises(ValueError, match="provider_metadata must be a dict"):
+            pb.get_binding(conn, result["id"])
+
+    def test_schema_repair_under_lock_succeeds_after_lock_released(self, db_path):
+        """Finding 48: when a cached connection needs schema repair and another
+        connection holds an IMMEDIATE lock, the repair path must retry on lock
+        errors (matching the cold path discipline) and succeed after the lock
+        is released."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            pb.create_binding(conn1, **valid_kwargs())
+        finally:
+            conn1.close()
+
+        conn_alter = sqlite3.connect(str(db_path))
+        try:
+            conn_alter.execute("DROP TABLE project_bindings")
+            conn_alter.commit()
+        finally:
+            conn_alter.close()
+
+        blocker = sqlite3.connect(str(db_path))
+        blocker.execute("BEGIN IMMEDIATE")
+
+        import threading
+        error_holder = []
+        conn_holder = []
+
+        def _try_connect():
+            try:
+                c = pb.connect(db_path=db_path)
+                conn_holder.append(c)
+            except Exception as exc:
+                error_holder.append(exc)
+
+        t = threading.Thread(target=_try_connect)
+        t.start()
+        time.sleep(0.2)
+
+        blocker.execute("ROLLBACK")
+        blocker.close()
+
+        t.join(timeout=10)
+
+        assert not error_holder, f"connect() raised under lock-during-repair: {error_holder}"
+        assert conn_holder, "connect() did not return a connection"
+        conn2 = conn_holder[0]
+        try:
+            assert pb._verify_complete_schema(conn2) is True
+            result = pb.create_binding(conn2, **valid_kwargs())
+            assert result["conflict"] is False
+        finally:
+            conn2.close()
+
+
 # =============================================================================
 # Contract validation (executable now — targets the already-shipped fixture
 # package, not hermes_project_work; not gated by the module skip above)

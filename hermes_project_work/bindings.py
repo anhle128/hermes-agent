@@ -322,6 +322,11 @@ def _init_cached_connection(conn: sqlite3.Connection) -> None:
                     time.sleep(_SCHEMA_INIT_BACKOFF_MS * (attempt + 1) / 1000.0)
                     continue
                 raise
+        if not _verify_complete_schema(conn):
+            raise RuntimeError(
+                "schema repair completed but verification still failed — "
+                "the DB file may be corrupt or externally modified"
+            )
 
     _migrate_add_optional_columns(conn)
 
@@ -384,8 +389,18 @@ class ProjectBinding:
 def _binding_from_row(row: sqlite3.Row) -> ProjectBinding:
     gh_raw = row["github_reference"]
     gh = json.loads(gh_raw) if gh_raw is not None else None
+    if gh is not None and not isinstance(gh, dict):
+        raise ValueError(
+            f"github_reference must be a dict after JSON parsing, "
+            f"got {type(gh).__name__}"
+        )
     pm_raw = row["provider_metadata"]
     pm = json.loads(pm_raw) if pm_raw is not None else None
+    if pm is not None and not isinstance(pm, dict):
+        raise ValueError(
+            f"provider_metadata must be a dict after JSON parsing, "
+            f"got {type(pm).__name__}"
+        )
     return ProjectBinding(
         id=row["id"],
         profile=row["profile"],
