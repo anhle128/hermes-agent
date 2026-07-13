@@ -67,13 +67,6 @@ try:
 except ModuleNotFoundError:
     # Expected until Task 1 lands: hermes_project_work package doesn't exist yet
     pb = None
-except ImportError as exc:
-    # Other ImportErrors (syntax errors, missing dependencies) should propagate
-    # so tests fail instead of skip silently. Only skip if the module itself is missing.
-    if "hermes_project_work" in str(exc):
-        pb = None
-    else:
-        raise
 
 # Applied per-class (not as a file-wide `pytestmark`) so the standalone
 # contract-validator test at the bottom of this file — which targets the
@@ -566,6 +559,41 @@ class TestProviderIdentityAndFixtureRoundtrip:
         assert first["conflict"] is False
         assert second["conflict"] is False
 
+    def test_blank_provider_identity_coerced_to_none_no_collision(self, conn):
+        """Finding 22: blank provider_name/provider_binding_name are coerced
+        to None, so two bindings with blank provider identity don't collide
+        on the provider dimension (NULL doesn't trigger the partial unique
+        index)."""
+        first = pb.create_binding(
+            conn,
+            **valid_kwargs(
+                bound_project_cwd="/tmp/a",
+                github_reference=None,
+                bmad_skill_dir=None,
+                provider_name="",
+                provider_binding_name="",
+                provider_metadata=None,
+            ),
+        )
+        second = pb.create_binding(
+            conn,
+            **valid_kwargs(
+                bound_project_cwd="/tmp/b",
+                github_reference=None,
+                bmad_skill_dir=None,
+                provider_name="   ",
+                provider_binding_name="   ",
+                provider_metadata=None,
+            ),
+        )
+        assert first["conflict"] is False
+        assert second["conflict"] is False
+        assert row_count(conn) == 2
+
+        first_binding = pb.get_binding(conn, first["id"])
+        assert first_binding.provider_name is None
+        assert first_binding.provider_binding_name is None
+
 
 @requires_bindings_module
 class TestConflictAggregationAndRetryDiscipline:
@@ -1040,10 +1068,8 @@ class TestIdentityStability:
     def test_forced_random_id_collision_preserves_first_row(self, conn, monkeypatch):
         """2.1A-INT-041 (R-011): if the random-id generator is forced to
         collide (pathological but possible), create_binding() must fail
-        closed — never silently overwrite the first row. The exact private
-        id-generator seam name is illustrative; adjust to the actual helper.
-        After exhausting retries (10 attempts), RuntimeError is raised —
-        this is the correct fail-closed behavior."""
+        closed — never silently overwrite the first row.  Returns a
+        machine-readable conflict with an "id" violation dimension."""
         id_gen_name = "_new_binding_id"
         if not hasattr(pb, id_gen_name):
             pytest.skip(f"pb.{id_gen_name} not present; adjust to actual id generator name")
@@ -1065,11 +1091,11 @@ class TestIdentityStability:
             provider_metadata=None,
         )
 
-        # The first INSERT succeeds, the second INSERT fails with IntegrityError
-        # (PK collision), the retry loop generates the same id again (because of
-        # the monkeypatch), fails again, and after 10 retries raises RuntimeError.
-        with pytest.raises(RuntimeError, match="failed to generate a unique binding id"):
-            pb.create_binding(conn, **second_kwargs)
+        # PK collision returns a machine-readable conflict instead of raising
+        result = pb.create_binding(conn, **second_kwargs)
+        assert result["conflict"] is True
+        assert "id" in result["violations"]
+        assert result["violations"]["id"] == "pb_00000000"
 
         # Only the first row persists — the second create failed closed
         assert row_count(conn) == 1

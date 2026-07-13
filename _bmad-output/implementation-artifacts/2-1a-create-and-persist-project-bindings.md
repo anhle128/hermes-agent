@@ -177,6 +177,12 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   19. Rejected blank paths; preserved Windows drive roots in _normalize_path (Finding 19)
   20. Updated forced PK collision test to override all uniqueness dimensions (Finding 20)
   21. Made import guard more specific to catch only module-not-found errors (Finding 21)
+- Fourth fix pass (round 4) changes:
+  22. Blank provider_name/provider_binding_name now coerced to None after stripping, preventing phantom unique-index entries on "" values (Finding 22)
+  23. PK collisions now return machine-readable conflict {"conflict": True, "violations": {"id": binding_id}} instead of retrying and raising RuntimeError (Finding 23)
+  24. _INITIALIZED_PATHS cache now consulted in connect() — cached paths skip redundant executescript(SCHEMA_SQL) but detect file recreation via table probe; _migrate_add_optional_columns() always runs (Finding 24)
+  25. Import guard tightened to only catch ModuleNotFoundError; ImportError (syntax errors, missing deps) now propagates so tests fail instead of skip silently (Finding 25)
+- **Test results: 66/66 passing** after fourth fix pass addressing all 4 round-4 review findings.
 
 ### File List
 
@@ -208,7 +214,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Blank BMAD paths and Windows roots still normalize to incorrect identities [hermes_project_work/bindings.py:102]
 - [x] [Review][Patch] Primary-key collision handling still retries and its test never reaches the path [hermes_project_work/bindings.py:489]
 - [x] [Review][Patch] TEA tests still provide false-positive import, race, rollback, restart, and schema evidence [tests/project_work/test_bindings.py:65]
-- [ ] [Review][Patch] Provider identity and JSON validation still accepts malformed or type-losing values [hermes_project_work/bindings.py:344]
-- [ ] [Review][Patch] Primary-key collisions still retry and raise instead of returning a machine-readable conflict [hermes_project_work/bindings.py:511]
-- [ ] [Review][Patch] Per-path schema initialization cache is populated but never consulted [hermes_project_work/bindings.py:91]
-- [ ] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
+- [x] [Review][Patch] Provider identity and JSON validation still accepts malformed or type-losing values [hermes_project_work/bindings.py:344]
+- [x] [Review][Patch] Primary-key collisions still retry and raise instead of returning a machine-readable conflict [hermes_project_work/bindings.py:511]
+- [x] [Review][Patch] Per-path schema initialization cache is populated but never consulted [hermes_project_work/bindings.py:91]
+- [x] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]

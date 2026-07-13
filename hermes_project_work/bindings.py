@@ -175,6 +175,10 @@ def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
     retried with bounded backoff.  WAL with DELETE fallback via the shared
     helper.  ``check_same_thread=False`` allows cross-thread use (needed for
     concurrent-init tests).
+
+    The per-path cache (``_INITIALIZED_PATHS``) skips redundant schema init
+    for performance, but detects file recreation by checking if the schema
+    is present.
     """
     path = db_path if db_path is not None else project_bindings_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,8 +186,11 @@ def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False)
     try:
         conn.row_factory = sqlite3.Row
-        _init_connection_with_retry(conn)
-        _INITIALIZED_PATHS.add(resolved)
+        if resolved in _INITIALIZED_PATHS:
+            _init_cached_connection(conn)
+        else:
+            _init_connection_with_retry(conn)
+            _INITIALIZED_PATHS.add(resolved)
     except Exception:
         conn.close()
         raise
@@ -209,6 +216,27 @@ def _init_connection_with_retry(conn: sqlite3.Connection) -> None:
                 time.sleep(_SCHEMA_INIT_BACKOFF_MS * (attempt + 1) / 1000.0)
                 continue
             raise
+
+
+def _init_cached_connection(conn: sqlite3.Connection) -> None:
+    """Initialize a connection for a cached path.
+
+    Skips redundant ``executescript(SCHEMA_SQL)`` for performance, but
+    detects file recreation by probing the table.  Always runs
+    ``_migrate_add_optional_columns()`` so the migration seam fires on
+    every ``connect()``.
+    """
+    from hermes_state import apply_wal_with_fallback
+
+    apply_wal_with_fallback(conn, db_label="project_bindings.db")
+    conn.execute("PRAGMA foreign_keys=ON")
+
+    try:
+        conn.execute("SELECT 1 FROM project_bindings LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.executescript(SCHEMA_SQL)
+
+    _migrate_add_optional_columns(conn)
 
 
 @contextlib.contextmanager
@@ -491,11 +519,15 @@ def create_binding(
     gh_key = _github_reference_key(gh_ref) if gh_ref else None
 
     pn = provider_name.strip() if isinstance(provider_name, str) else None
+    if pn == "":
+        pn = None
     pbn = (
         provider_binding_name.strip()
         if isinstance(provider_binding_name, str)
         else None
     )
+    if pbn == "":
+        pbn = None
 
     gh_json = (
         _serialize_json(gh_ref, "github_reference") if gh_ref else None
@@ -560,7 +592,7 @@ def create_binding(
             )
             if race:
                 return {"conflict": True, "violations": race}
-            continue
+            return {"conflict": True, "violations": {"id": binding_id}}
 
     raise RuntimeError(
         f"failed to generate a unique binding id after {_MAX_ID_RETRIES} retries"
