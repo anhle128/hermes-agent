@@ -879,6 +879,26 @@ class TestProfileIsolation:
             conn_a.close()
             conn_b.close()
 
+    def test_list_bindings_for_profile_normalizes_whitespace(self, conn):
+        """Finding 39: list_bindings_for_profile strips whitespace from the
+        profile parameter, matching the canonicalization done by
+        _resolve_profile during create. Without normalization, ' alpha '
+        would return empty results even though bindings exist for 'alpha'."""
+        _minimal = dict(github_reference=None, bmad_skill_dir=None,
+                        provider_name=None, provider_binding_name=None,
+                        provider_metadata=None)
+        pb.create_binding(conn, **valid_kwargs(profile="alpha", bound_project_cwd="/tmp/a", **_minimal))
+
+        result = pb.list_bindings_for_profile(conn, "  alpha  ")
+        assert len(result) == 1
+        assert result[0].profile == "alpha"
+
+    def test_list_bindings_for_profile_rejects_non_string(self, conn):
+        """Finding 39: list_bindings_for_profile rejects non-string profile
+        values with TypeError, matching create_binding's profile validation."""
+        with pytest.raises(TypeError):
+            pb.list_bindings_for_profile(conn, 123)
+
 
 @requires_bindings_module
 class TestMigrationAndIdempotentInit:
@@ -1089,6 +1109,26 @@ class TestMigrationAndIdempotentInit:
         finally:
             conn2.close()
 
+    def test_verify_complete_schema_detects_non_unique_index(self, db_path):
+        """Finding 36: _verify_complete_schema returns False when an expected
+        unique index exists by name but is not actually unique — name-only
+        verification would miss a broken index recreated without UNIQUE."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP INDEX IF EXISTS uq_pb_profile_cwd")
+            conn.execute(
+                "CREATE INDEX uq_pb_profile_cwd"
+                " ON project_bindings(profile, bound_project_cwd)"
+            )
+            assert pb._verify_complete_schema(conn) is False
+        finally:
+            conn.close()
+
     def test_pragma_relationships_prove_columns_and_unique_predicates(self, conn):
         """2.1A-INT-035 (AC4/R-002/R-008): assert the schema's structural
         shape via PRAGMA introspection (required columns + four partial
@@ -1110,9 +1150,16 @@ class TestMigrationAndIdempotentInit:
         assert required_columns.issubset(columns)
 
         indexes = conn.execute("PRAGMA index_list(project_bindings)").fetchall()
-        assert len(indexes) >= 4, "expected at least the four partial unique indexes"
-        for index in indexes:
-            assert index["unique"] == 1
+        index_map = {row["name"]: row for row in indexes}
+        expected_unique_indexes = {
+            "uq_pb_profile_cwd",
+            "uq_pb_profile_github_key",
+            "uq_pb_profile_bmad_dir",
+            "uq_pb_profile_provider",
+        }
+        for name in expected_unique_indexes:
+            assert name in index_map, f"expected index {name} not found"
+            assert index_map[name]["unique"] == 1, f"index {name} is not unique"
 
 
 @requires_bindings_module

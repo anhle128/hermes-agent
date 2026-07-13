@@ -199,6 +199,12 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   28. Added `math.isfinite()` check to `_require_json_compatible()` — rejects non-finite floats (inf, -inf, nan) with TypeError before reaching json.dumps; added early return for bool to prevent isinstance(bool, int) false path (Finding 34)
   29. Rewrote cross-process race tests to create a temp HERMES_HOME dir instead of requiring it from the parent process — removed both `@pytest.mark.skipif` decorators; tests now always run (Finding 35)
 - **Test results: 82/82 passing** after seventh fix pass addressing all 3 round-7 review findings.
+- Eighth fix pass (round 8) changes:
+  33. _verify_complete_schema now verifies each expected index is actually unique (checks the `unique` column from PRAGMA index_list), not just present by name — a non-unique index with the same name would pass the old check but the uniqueness constraint would be broken (Finding 36)
+  34. _serialize_json round-trip check now compares serialized forms instead of Python objects — Python's `==` has loose bool/int semantics (`1 == True`), so comparing Python objects after round-trip would miss type loss; comparing JSON text catches any change including bool/int swaps (Finding 37)
+  35. Enhanced test_pragma_relationships_prove_columns_and_unique_predicates to verify specific expected index names exist and are unique, not just "at least 4 indexes exist and all are unique" — proves the schema has the exact expected indexes (Finding 38)
+  36. list_bindings_for_profile now normalizes the profile parameter by stripping whitespace and rejects non-string types with TypeError — matches the canonicalization done by _resolve_profile during create, preventing " alpha " from returning empty results when bindings exist for "alpha" (Finding 39)
+- **Test results: 85/85 passing** after eighth fix pass addressing all 4 round-8 review findings.
 
 ### File List
 
@@ -245,7 +251,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Cached schema initialization still accepts incomplete schemas and does not perform additive repair [hermes_project_work/bindings.py:229]
 - [x] [Review][Patch] Provider identity and JSON validation still admits malformed or type-losing values [hermes_project_work/bindings.py:402]
 - [x] [Review][Patch] TEA evidence still skips race tests and does not prove rollback/schema relationships [tests/project_work/test_bindings.py:714]
-- [ ] [Review][Patch] Cached schema repair still accepts incomplete schemas and broken index definitions [hermes_project_work/bindings.py:238]
-- [ ] [Review][Patch] Provider identity and JSON validation still permits type loss and inconsistent controller identities [hermes_project_work/bindings.py:417]
-- [ ] [Review][Patch] TEA persistence evidence still misses real rollback/schema/race boundaries [tests/project_work/test_bindings.py:1092]
-- [ ] [Review][Patch] Profile-scoped listing bypasses profile normalization [hermes_project_work/bindings.py:704]
+- [x] [Review][Patch] Cached schema repair still accepts incomplete schemas and broken index definitions [hermes_project_work/bindings.py:238]
+- [x] [Review][Patch] Provider identity and JSON validation still permits type loss and inconsistent controller identities [hermes_project_work/bindings.py:417]
+- [x] [Review][Patch] TEA persistence evidence still misses real rollback/schema/race boundaries [tests/project_work/test_bindings.py:1092]
+- [x] [Review][Patch] Profile-scoped listing bypasses profile normalization [hermes_project_work/bindings.py:704]

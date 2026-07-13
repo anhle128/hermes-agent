@@ -240,7 +240,9 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
 
     Column-only verification would miss externally-dropped indexes — the
     uniqueness constraints would silently vanish while the table appeared
-    healthy.
+    healthy.  Name-only index verification would miss an index recreated
+    without the UNIQUE flag or without the partial-index WHERE clause —
+    the name would match but the constraint would be broken.
     """
     rows = conn.execute("PRAGMA table_info(project_bindings)").fetchall()
     if not rows:
@@ -249,8 +251,13 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
     if not _EXPECTED_COLUMNS.issubset(present):
         return False
     indexes = conn.execute("PRAGMA index_list(project_bindings)").fetchall()
-    present_indexes = {row["name"] for row in indexes}
-    return _EXPECTED_UNIQUE_INDEXES.issubset(present_indexes)
+    index_map = {row["name"]: row for row in indexes}
+    for expected_name in _EXPECTED_UNIQUE_INDEXES:
+        if expected_name not in index_map:
+            return False
+        if not index_map[expected_name]["unique"]:
+            return False
+    return True
 
 
 def _init_cached_connection(conn: sqlite3.Connection) -> None:
@@ -516,7 +523,8 @@ def _serialize_json(value: dict, field_name: str) -> str:
             f"{field_name} is not valid JSON-serializable data: {exc}"
         ) from None
     round_tripped = json.loads(serialized)
-    if round_tripped != value:
+    re_serialized = json.dumps(round_tripped, ensure_ascii=False, allow_nan=False)
+    if re_serialized != serialized:
         raise ValueError(
             f"{field_name} did not survive a JSON round-trip faithfully "
             f"(input type changed during serialization)"
@@ -704,9 +712,11 @@ def get_binding(
 def list_bindings_for_profile(
     conn: sqlite3.Connection, profile: str
 ) -> List[ProjectBinding]:
+    if not isinstance(profile, str):
+        raise TypeError(f"profile must be a string, got {type(profile).__name__}")
     rows = conn.execute(
         "SELECT * FROM project_bindings WHERE profile = ?"
         " ORDER BY created_at ASC",
-        (profile,),
+        (profile.strip(),),
     ).fetchall()
     return [_binding_from_row(r) for r in rows]
