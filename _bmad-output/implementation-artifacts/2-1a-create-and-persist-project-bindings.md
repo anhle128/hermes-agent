@@ -226,3 +226,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Provider identity and JSON fidelity still accept malformed or type-losing inputs [hermes_project_work/bindings.py:372]
 - [x] [Review][Patch] Cached schema initialization does not verify or retry the complete schema [hermes_project_work/bindings.py:169]
 - [x] [Review][Patch] TEA evidence remains skippable or false-positive across persistence boundaries [tests/project_work/test_bindings.py:65]
+- [ ] [Review][Patch] New Project Binding package is omitted from distributions [pyproject.toml:356]
+- [ ] [Review][Patch] Provider identity and JSON contract validation remains lossy and incomplete [hermes_project_work/bindings.py:389]
+- [ ] [Review][Patch] Cached schema initialization remains incomplete and lacks warm-path retry [hermes_project_work/bindings.py:229]
+- [ ] [Review][Patch] Green TEA suite still provides false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:65]
