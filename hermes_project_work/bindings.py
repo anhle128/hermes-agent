@@ -103,8 +103,11 @@ def _normalize_path(path: str) -> str:
     """Absolute, user-expanded, separator-normalized path.
 
     Root (``"/"``) stays root — the ``or path`` guard prevents stripping it
-    to an empty string.
+    to an empty string.  Null bytes are rejected — they cause silent
+    truncation in SQLite and C-level path operations.
     """
+    if "\x00" in path:
+        raise ValueError("path must not contain null bytes")
     p = os.path.abspath(os.path.expanduser(str(path).strip()))
     return p.rstrip("/\\") or p
 
@@ -123,26 +126,35 @@ def _github_reference_key(ref: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _is_lock_error(exc: sqlite3.OperationalError) -> bool:
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Run schema init idempotently; swallow lock errors for deferred retry.
+    """Run schema init idempotently; swallow only lock errors for deferred retry.
 
     ``executescript`` issues an implicit COMMIT and runs DDL, which requires
     a write lock.  When another connection holds an IMMEDIATE lock (e.g. a
-    concurrent writer), this raises ``OperationalError``.  We swallow that
-    here so ``connect()`` can return a usable connection; the schema init
-    will be retried on the next write path (``create_binding``).
+    concurrent writer), this raises ``OperationalError``.  We swallow *only*
+    lock/busy errors here so ``connect()`` can return a usable connection;
+    the schema init will be retried on the next write path
+    (``create_binding``).  All other OperationalErrors (corrupt DB,
+    permission denied, etc.) are re-raised immediately.
     """
     try:
         from hermes_state import apply_wal_with_fallback
 
         apply_wal_with_fallback(conn, db_label="project_bindings.db")
-    except sqlite3.OperationalError:
-        pass
+    except sqlite3.OperationalError as exc:
+        if not _is_lock_error(exc):
+            raise
     try:
         conn.executescript(SCHEMA_SQL)
         _migrate_add_optional_columns(conn)
-    except sqlite3.OperationalError:
-        pass
+    except sqlite3.OperationalError as exc:
+        if not _is_lock_error(exc):
+            raise
 
 
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
@@ -165,8 +177,9 @@ def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
 
         try:
             apply_wal_with_fallback(conn, db_label="project_bindings.db")
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as exc:
+            if not _is_lock_error(exc):
+                raise
         conn.execute("PRAGMA foreign_keys=ON")
         _ensure_schema(conn)
         _INITIALIZED_PATHS.add(resolved)
@@ -293,12 +306,17 @@ def _validate_github_reference(
         raise ValueError("github_reference['owner'] must be a non-empty string")
     if not isinstance(repo, str) or not repo.strip():
         raise ValueError("github_reference['repo'] must be a non-empty string")
+    if "/" in owner:
+        raise ValueError("github_reference['owner'] must not contain '/'")
+    if "/" in repo:
+        raise ValueError("github_reference['repo'] must not contain '/'")
     return ref
 
 
 def _validate_provider_identity(
     provider_name: Optional[str],
     provider_binding_name: Optional[str],
+    provider_metadata: Optional[dict] = None,
 ) -> None:
     has_name = (
         isinstance(provider_name, str) and bool(provider_name.strip())
@@ -311,15 +329,28 @@ def _validate_provider_identity(
             "provider_name and provider_binding_name must both be "
             "present and non-blank, or both absent"
         )
+    if provider_metadata is not None and not (has_name and has_binding):
+        raise ValueError(
+            "provider_metadata requires both provider_name and "
+            "provider_binding_name (Controller Identity)"
+        )
 
 
 def _serialize_json(value: dict, field_name: str) -> str:
+    """Serialize to JSON, rejecting non-standard constants and unfaithful round-trips."""
     try:
-        return json.dumps(value, ensure_ascii=False, allow_nan=False)
+        serialized = json.dumps(value, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise type(exc)(
             f"{field_name} is not valid JSON-serializable data: {exc}"
         ) from None
+    round_tripped = json.loads(serialized)
+    if round_tripped != value:
+        raise ValueError(
+            f"{field_name} did not survive a JSON round-trip faithfully "
+            f"(input type changed during serialization)"
+        )
+    return serialized
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +443,7 @@ def create_binding(
     _require_nonblank_str(bound_project_cwd, "bound_project_cwd")
 
     gh_ref = _validate_github_reference(github_reference)
-    _validate_provider_identity(provider_name, provider_binding_name)
+    _validate_provider_identity(provider_name, provider_binding_name, provider_metadata)
 
     normalized_cwd = _normalize_path(bound_project_cwd)
     normalized_bmad = (
@@ -441,20 +472,20 @@ def create_binding(
     for _ in range(_MAX_ID_RETRIES):
         binding_id = _new_binding_id()
 
-        violations = _check_uniqueness_dimensions(
-            conn,
-            resolved_profile,
-            normalized_cwd,
-            gh_key,
-            normalized_bmad,
-            pn,
-            pbn,
-        )
-        if violations:
-            return {"conflict": True, "violations": violations}
-
         try:
             with write_txn(conn):
+                violations = _check_uniqueness_dimensions(
+                    conn,
+                    resolved_profile,
+                    normalized_cwd,
+                    gh_key,
+                    normalized_bmad,
+                    pn,
+                    pbn,
+                )
+                if violations:
+                    return {"conflict": True, "violations": violations}
+
                 conn.execute(
                     "INSERT INTO project_bindings"
                     " (id, profile, display_name, bound_project_cwd,"
@@ -492,7 +523,9 @@ def create_binding(
                 return {"conflict": True, "violations": race}
             continue
 
-    return {"conflict": True, "violations": {}}
+    raise RuntimeError(
+        f"failed to generate a unique binding id after {_MAX_ID_RETRIES} retries"
+    )
 
 
 def get_binding(

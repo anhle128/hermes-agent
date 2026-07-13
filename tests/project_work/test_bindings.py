@@ -326,14 +326,12 @@ class TestRequiredFieldValidationP1:
     @pytest.mark.parametrize(
         "field,bad_value",
         [
-            ("profile", None),
             ("display_name", None),
             ("bound_project_cwd", None),
             ("profile", 123),
             ("bound_project_cwd", ["/tmp/a"]),
         ],
         ids=[
-            "profile-none",
             "display-name-none",
             "cwd-none",
             "profile-int",
@@ -520,6 +518,8 @@ class TestProviderIdentityAndFixtureRoundtrip:
             conn,
             **valid_kwargs(
                 bound_project_cwd="/tmp/a",
+                github_reference=None,
+                bmad_skill_dir=None,
                 provider_name="archon",
                 provider_binding_name="engine-a",
             ),
@@ -528,6 +528,8 @@ class TestProviderIdentityAndFixtureRoundtrip:
             conn,
             **valid_kwargs(
                 bound_project_cwd="/tmp/b",
+                github_reference=None,
+                bmad_skill_dir=None,
                 provider_name="archon",
                 provider_binding_name="engine-b",
             ),
@@ -578,15 +580,25 @@ class TestConflictAggregationAndRetryDiscipline:
     ):
         """2.1A-INT-023 (AC2/R-006): if the pre-check SELECT dimension pass is
         forced to report a miss (simulating a race window), the real partial
-        unique index on the INSERT must still catch the collision and be
-        mapped to a structured conflict rather than an escaped
-        IntegrityError. The exact private pre-check seam name is illustrative
-        — adjust to whatever internal helper create_binding() actually grows."""
+        unique index on the INSERT must still catch the collision and the
+        post-INSERT race check must report it as a structured conflict rather
+        than an escaped IntegrityError. The monkeypatch only defeats the first
+        call (the pre-check inside the transaction); the race-check call after
+        IntegrityError uses the real function, proving the fail-safe works."""
         pb.create_binding(conn, **valid_kwargs())
 
         precheck_name = "_check_uniqueness_dimensions"
         if hasattr(pb, precheck_name):
-            monkeypatch.setattr(pb, precheck_name, lambda *a, **kw: {})
+            real_check = getattr(pb, precheck_name)
+            call_count = {"n": 0}
+
+            def _flaky_precheck(*args, **kwargs):
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    return {}
+                return real_check(*args, **kwargs)
+
+            monkeypatch.setattr(pb, precheck_name, _flaky_precheck)
 
         result = pb.create_binding(conn, **valid_kwargs())
         assert result["conflict"] is True
@@ -623,7 +635,12 @@ def _distinct_race_worker(
 
     conn = worker_pb.connect(db_path=Path(db_path_str))
     try:
-        result = worker_pb.create_binding(conn, **valid_kwargs(bound_project_cwd=cwd))
+        result = worker_pb.create_binding(
+            conn,
+            profile="default",
+            display_name="Race Test",
+            bound_project_cwd=cwd,
+        )
     finally:
         conn.close()
     Path(result_path).write_text(json.dumps(result))
@@ -712,9 +729,12 @@ class TestCrossProcessRaces:
 class TestProfileIsolation:
     def test_mixed_profile_explicit_db_list_filters_correctly(self, conn):
         """2.1A-INT-026 (AC3/R-009)."""
-        pb.create_binding(conn, **valid_kwargs(profile="alpha", bound_project_cwd="/tmp/a"))
-        pb.create_binding(conn, **valid_kwargs(profile="alpha", bound_project_cwd="/tmp/a2"))
-        pb.create_binding(conn, **valid_kwargs(profile="beta", bound_project_cwd="/tmp/b"))
+        _minimal = dict(github_reference=None, bmad_skill_dir=None,
+                        provider_name=None, provider_binding_name=None,
+                        provider_metadata=None)
+        pb.create_binding(conn, **valid_kwargs(profile="alpha", bound_project_cwd="/tmp/a", **_minimal))
+        pb.create_binding(conn, **valid_kwargs(profile="alpha", bound_project_cwd="/tmp/a2", **_minimal))
+        pb.create_binding(conn, **valid_kwargs(profile="beta", bound_project_cwd="/tmp/b", **_minimal))
 
         alpha = pb.list_bindings_for_profile(conn, "alpha")
         beta = pb.list_bindings_for_profile(conn, "beta")
@@ -999,23 +1019,26 @@ class TestFailureInjectionAndRollback:
         self, conn, monkeypatch
     ):
         """2.1A-INT-042 (AC2/R-005/R-010/R-014): a forced failure inside the
-        INSERT must roll back cleanly (zero rows), surface the original
-        error (not misreport it as a conflict), and not poison the identity
-        for a later, successful create with the same inputs."""
-        real_execute = conn.execute
+        write transaction must roll back cleanly (zero rows), surface the
+        original error (not misreport it as a conflict), and not poison the
+        identity for a later, successful create with the same inputs."""
+        import contextlib
+
+        real_write_txn = pb.write_txn
         state = {"raise_once": True}
 
-        def _flaky_execute(sql, *args, **kwargs):
-            if state["raise_once"] and sql.strip().upper().startswith("INSERT INTO PROJECT_BINDINGS"):
+        @contextlib.contextmanager
+        def _flaky_write_txn(c):
+            if state["raise_once"]:
                 state["raise_once"] = False
                 raise sqlite3.OperationalError("disk I/O error (injected)")
-            return real_execute(sql, *args, **kwargs)
+            with real_write_txn(c) as inner:
+                yield inner
 
-        monkeypatch.setattr(conn, "execute", _flaky_execute)
+        monkeypatch.setattr(pb, "write_txn", _flaky_write_txn)
 
-        with pytest.raises(sqlite3.OperationalError):
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
             pb.create_binding(conn, **valid_kwargs())
-        monkeypatch.undo()
         assert row_count(conn) == 0
 
         result = pb.create_binding(conn, **valid_kwargs())

@@ -139,18 +139,25 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 
 - Implementation follows the story's scope boundary exactly: schema + migration scaffold, create, read, and persistence-level uniqueness rejection. No validation logic (Story 2.1b), no update/disable/audit (Story 2.1c), no provider binding lifecycle (Story 3.2).
 - Schema uses 4 partial unique indexes for profile-scoped uniqueness on: (profile, bound_project_cwd), (profile, github_reference_key), (profile, bmad_skill_dir), (profile, provider_name, provider_binding_name).
-- `github_reference_key` is derived as lowercased `owner/repo` for deterministic canonicalization, not JSON text equality.
-- Path normalization uses `abspath + expanduser + strip trailing separator` with root preservation (`"/"` stays `"/"`).
-- `create_binding()` uses a pre-check SELECT per dimension before INSERT to report all colliding dimensions (not just the first one SQLite catches). INSERT's unique constraints remain as a race fail-safe.
-- Schema init is resilient to database locks: `connect()` catches `OperationalError` from WAL pragma and schema init, deferring to retry on first write path (`create_binding()` calls `_ensure_schema()`).
-- Connection uses `check_same_thread=False` for cross-thread use (required by concurrent-init tests).
-- JSON serialization uses `allow_nan=False` to reject non-standard JSON constants. Corrupt stored JSON raises explicitly on read.
-- **Test results: 61/66 passing.** The 5 failures are test bugs or contradictions, not implementation defects:
-  1. `profile-none`: Test contradiction — parametrize test expects `profile=None` to raise, but resolver test expects it to auto-resolve via `get_active_profile_name()`. Implementation satisfies the more specific resolver test.
-  2. `test_distinct_complete_provider_tuples_are_allowed`: Test bug — uses `valid_kwargs()` which includes github_reference and bmad_skill_dir, but only overrides cwd and provider fields. Second binding collides on github/bmad dimensions.
-  3. `test_two_processes_create_distinct_identities_both_persist`: Same test bug — both processes use identical github/bmad/provider from `valid_kwargs()`.
-  4. `test_mixed_profile_explicit_db_list_filters_correctly`: Same test bug — second alpha binding collides on github/bmad/provider.
-  5. `test_injected_insert_failure_rolls_back_zero_row_and_later_reuse_works`: Python limitation — cannot `monkeypatch.setattr` on `sqlite3.Connection.execute` (C extension attribute is read-only).
+- `github_reference_key` is derived as lowercased `owner/repo` for deterministic canonicalization, not JSON text equality. Owner/repo values containing `/` are rejected to prevent key ambiguity.
+- Path normalization uses `abspath + expanduser + strip trailing separator` with root preservation (`"/"` stays `"/"`). Null bytes in paths are rejected.
+- `create_binding()` runs uniqueness pre-checks inside the IMMEDIATE transaction (alongside the INSERT) for atomic conflict detection. INSERT's unique constraints remain as a race fail-safe.
+- Schema init only swallows "database is locked"/"busy" OperationalErrors; all other schema errors propagate immediately.
+- Provider metadata requires a complete Controller Identity (both provider_name and provider_binding_name).
+- JSON serialization validates round-trip fidelity before accepting.
+- PK collision retries raise RuntimeError after exhaustion instead of returning an empty diagnostic.
+- **Test results: 65/65 passing** after fix pass addressing all 10 review findings.
+- Fix pass changes:
+  1. Moved uniqueness pre-checks inside IMMEDIATE transaction (Finding 1)
+  2. Schema/migration OperationalErrors now only swallow lock/busy errors (Finding 2)
+  3. Provider metadata requires Controller Identity (Finding 3)
+  4. Null bytes rejected in paths (Finding 4)
+  5. `/` rejected in github owner/repo components (Finding 5)
+  6. JSON round-trip fidelity validated before persist (Finding 6)
+  7. PK collision retry exhaustion raises RuntimeError (Finding 7)
+  8. Removed profile-none test contradiction; rewrote injection test to monkeypatch write_txn instead of C extension (Finding 8)
+  9. Fixed identity tests that reused hidden uniqueness dimensions (Finding 9)
+  10. Strengthened forced-precheck test with counter-based monkeypatch (Finding 10)
 
 ### File List
 
@@ -161,13 +168,13 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 
 ### Review Findings
 
-- [ ] [Review][Patch] Create path can commit caller work and checks uniqueness outside the IMMEDIATE transaction [hermes_project_work/bindings.py:407]
-- [ ] [Review][Patch] Schema and migration OperationalErrors are silently hidden [hermes_project_work/bindings.py:135]
-- [ ] [Review][Patch] Provider metadata persists without a valid Controller Identity [hermes_project_work/bindings.py:299]
-- [ ] [Review][Patch] Identity paths and profiles accept invalid or non-canonical values [hermes_project_work/bindings.py:102]
-- [ ] [Review][Patch] GitHub reference key is ambiguous for delimiter-bearing components [hermes_project_work/bindings.py:112]
-- [ ] [Review][Patch] JSON inputs can change during an accepted persistence round trip [hermes_project_work/bindings.py:316]
-- [ ] [Review][Patch] Primary-key collisions retry into an empty conflict diagnostic [hermes_project_work/bindings.py:441]
-- [ ] [Review][Patch] Focused acceptance suite contradicts profile semantics and cannot inject rollback failure [tests/project_work/test_bindings.py:326]
-- [ ] [Review][Patch] TEA identity scenarios reuse hidden uniqueness dimensions [tests/project_work/test_bindings.py:111]
-- [ ] [Review][Patch] TEA transaction, lock, restart, identity, and index tests can pass without proving their claims [tests/project_work/test_bindings.py:576]
+- [x] [Review][Patch] Create path can commit caller work and checks uniqueness outside the IMMEDIATE transaction [hermes_project_work/bindings.py:407]
+- [x] [Review][Patch] Schema and migration OperationalErrors are silently hidden [hermes_project_work/bindings.py:135]
+- [x] [Review][Patch] Provider metadata persists without a valid Controller Identity [hermes_project_work/bindings.py:299]
+- [x] [Review][Patch] Identity paths and profiles accept invalid or non-canonical values [hermes_project_work/bindings.py:102]
+- [x] [Review][Patch] GitHub reference key is ambiguous for delimiter-bearing components [hermes_project_work/bindings.py:112]
+- [x] [Review][Patch] JSON inputs can change during an accepted persistence round trip [hermes_project_work/bindings.py:316]
+- [x] [Review][Patch] Primary-key collisions retry into an empty conflict diagnostic [hermes_project_work/bindings.py:441]
+- [x] [Review][Patch] Focused acceptance suite contradicts profile semantics and cannot inject rollback failure [tests/project_work/test_bindings.py:326]
+- [x] [Review][Patch] TEA identity scenarios reuse hidden uniqueness dimensions [tests/project_work/test_bindings.py:111]
+- [x] [Review][Patch] TEA transaction, lock, restart, identity, and index tests can pass without proving their claims [tests/project_work/test_bindings.py:576]
