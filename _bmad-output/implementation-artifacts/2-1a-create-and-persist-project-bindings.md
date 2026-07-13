@@ -245,3 +245,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Cached schema initialization still accepts incomplete schemas and does not perform additive repair [hermes_project_work/bindings.py:229]
 - [x] [Review][Patch] Provider identity and JSON validation still admits malformed or type-losing values [hermes_project_work/bindings.py:402]
 - [x] [Review][Patch] TEA evidence still skips race tests and does not prove rollback/schema relationships [tests/project_work/test_bindings.py:714]
+- [ ] [Review][Patch] Cached schema repair still accepts incomplete schemas and broken index definitions [hermes_project_work/bindings.py:238]
+- [ ] [Review][Patch] Provider identity and JSON validation still permits type loss and inconsistent controller identities [hermes_project_work/bindings.py:417]
+- [ ] [Review][Patch] TEA persistence evidence still misses real rollback/schema/race boundaries [tests/project_work/test_bindings.py:1092]
+- [ ] [Review][Patch] Profile-scoped listing bypasses profile normalization [hermes_project_work/bindings.py:704]
