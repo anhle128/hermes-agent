@@ -1,6 +1,6 @@
 # Story 2.1a: Create And Persist Project Bindings
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -133,7 +133,11 @@ Qoder (AI coding agent)
 
 ### Debug Log References
 
-Test execution logs from `python -m pytest tests/project_work/test_bindings.py -v --tb=short`
+- Focused acceptance run: `bash scripts/run_tests.sh tests/project_work/test_bindings.py -q` on 2026-07-14 - 132/132 passed.
+- Focused story lint run: `.venv/bin/python -m ruff check hermes_project_work/bindings.py tests/project_work/test_bindings.py` on 2026-07-14 - passed.
+- Review patch focused run: `bash scripts/run_tests.sh tests/agent/test_anthropic_keychain.py tests/gateway/test_shutdown_forensics.py tests/cli/test_cli_browser_connect.py tests/test_tui_gateway_server.py tests/tools/test_base_environment.py -q` on 2026-07-14 - 5 files, 406 tests passed.
+- Targeted blocker suite: `bash scripts/run_tests.sh tests/agent/test_anthropic_adapter.py tests/agent/test_anthropic_keychain.py tests/agent/test_anthropic_output_field_leak.py tests/acp tests/cli/test_cli_browser_connect.py tests/gateway/test_background_command.py tests/gateway/test_shutdown_forensics.py tests/gateway/test_wecom_callback.py tests/hermes_cli/test_gateway_service.py tests/hermes_cli/test_gateway_wsl.py tests/hermes_cli/test_ignore_user_config_flags.py tests/hermes_cli/test_service_manager.py tests/hermes_cli/test_signal_handler_kanban_worker.py tests/test_live_system_guard_self_test.py tests/tools/test_base_environment.py tests/tools/test_file_tools.py tests/test_tui_gateway_server.py tests/project_work/test_bindings.py -q` on 2026-07-14 - 31 files, 1,418 tests passed, 0 failed.
+- Full regression run: `bash scripts/run_tests.sh` on 2026-07-14 - 1,887 files, 39,307 tests passed, 0 failed.
 
 ### Completion Notes List
 
@@ -146,12 +150,12 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - Schema init only swallows "database is locked"/"busy" OperationalErrors during bounded retry (5 attempts with backoff); all other schema errors propagate immediately. Connection never returns unusable.
 - Provider metadata requires a complete Controller Identity (both provider_name and provider_binding_name) and must be a dict.
 - JSON serialization validates round-trip fidelity before accepting.
-- PK collision retries raise RuntimeError after exhaustion instead of returning an empty diagnostic.
+- PK collisions return a machine-readable conflict diagnostic instead of retrying into an empty or raised result.
 - Profile names are canonicalized (stripped of whitespace). Non-string profile values are rejected.
 - Blank paths are rejected before normalization. Windows drive roots (e.g., "C:\\") are preserved.
 - Schema initialization only happens in connect(), not in create_binding(), preventing caller transaction commits.
 - Provider identity validation rejects non-string types for provider_name and provider_binding_name.
-- Import guard in tests catches only ModuleNotFoundError and hermes_project_work ImportErrors, not all ImportErrors.
+- Import guard in tests catches only the expected missing `hermes_project_work` ModuleNotFoundError, not unrelated import failures.
 - **Test results: 65/65 passing** after third fix pass addressing all 5 round-3 review findings.
 - First fix pass (round 1) changes:
   1. Moved uniqueness pre-checks inside IMMEDIATE transaction (Finding 1)
@@ -243,6 +247,16 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
   55. Added TestProviderIdentityNullStorageAtDbLevel class with 2 tests: test_blank_provider_identity_stored_as_null_not_empty_string (proves whitespace-only provider identity is stored as SQL NULL via raw row inspection, not empty string — critical because the partial unique index WHERE clause only excludes NULL), test_null_provider_identity_does_not_trigger_partial_unique_index (proves two bindings with NULL provider identity coexist without collision, verifying DB-level NULL storage at the constraint level) (Finding 53)
   56. Added TestPrimaryKeyVerification class with test_verify_complete_schema_detects_missing_primary_key (proves _verify_complete_schema returns False when table lacks PRIMARY KEY on id) (Finding 52)
 - **Test results: 123/123 passing** after fifteenth fix pass addressing all 3 round-15 review findings.
+- Sixteenth fix pass (round 16) changes:
+  57. _init_connection_with_retry now checks table existence before running executescript(SCHEMA_SQL); if table exists, verifies schema via _verify_complete_schema and repairs additively via _repair_schema_additive if incomplete; if table doesn't exist, runs _ensure_schema and verifies afterward; both paths raise RuntimeError if verification still fails after repair — prevents pre-existing broken tables from silently passing initialization or causing confusing errors on index creation (Finding 55)
+  58. Added null byte rejection to _require_nonblank_str (covers display_name), _validate_github_reference (covers owner/repo), and _require_json_compatible (covers all JSON string values in provider_metadata and github_reference) — prevents silent truncation in SQLite and C-level string operations (Finding 56)
+  59. Added TestColdPathSchemaVerification class with 3 tests (cold init repair for broken table, missing indexes, RuntimeError when repair fails) and TestNullByteRejectionInStringFields class with 6 tests (display_name, github owner, github repo, provider_metadata string value, github_reference extra string value, nested JSON string value) (Finding 57)
+- **Test results: 132/132 passing** after sixteenth fix pass addressing all 3 round-16 review findings.
+- Seventeenth fix pass (round 17) changes:
+  60. Removed _migrate_add_optional_columns(conn) call from inside _ensure_schema() and moved the explicit call in _init_connection_with_retry outside the if/else so it fires exactly once per connect() regardless of which init path is taken — previously the cold init path (table doesn't exist) called it twice (once inside _ensure_schema, once explicitly), while the warm path (table exists) called it once (Finding 58)
+- **Test results: 132/132 passing** after seventeenth fix pass addressing 1 round-17 review finding.
+- Dev-story completion gate passed on 2026-07-14. The required full regression run is green, so Story 2.1a is promoted to `review`.
+- Regression cleanup fixed reproduced full-suite blockers outside the story package while preserving Story 2.1a's implementation scope: schema, create/read, persistence, and uniqueness only.
 
 ### File List
 
@@ -250,7 +264,29 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - `hermes_project_work/bindings.py` (Project Binding schema, connection management, CRUD, uniqueness enforcement)
 - `tests/project_work/__init__.py` (already existed)
 - `tests/project_work/test_bindings.py` (already existed with red-phase acceptance tests)
-- `pyproject.toml` (added hermes_project_work to packages.find.include)
+- `agent/anthropic_adapter.py` (Darwin keychain JSON guard)
+- `gateway/shutdown_forensics.py` (bounded diagnostic fallback without GNU `timeout`)
+- `hermes_cli/browser_connect.py` (spawn-failed browser launch hint)
+- `hermes_cli/service_manager.py` (s6 event directory mode preservation)
+- `tools/environments/base.py` (atomic snapshot temp creation with `command mktemp`)
+- `tui_gateway/server.py` (browser failure messages based on actual launch candidates)
+- `tests/agent/test_anthropic_keychain.py`
+- `tests/agent/test_anthropic_output_field_leak.py`
+- `tests/cli/test_cli_browser_connect.py`
+- `tests/gateway/test_background_command.py`
+- `tests/gateway/test_shutdown_forensics.py`
+- `tests/hermes_cli/test_gateway_service.py`
+- `tests/hermes_cli/test_gateway_wsl.py`
+- `tests/hermes_cli/test_ignore_user_config_flags.py`
+- `tests/hermes_cli/test_service_manager.py`
+- `tests/hermes_cli/test_signal_handler_kanban_worker.py`
+- `tests/test_live_system_guard_self_test.py`
+- `tests/test_tui_gateway_server.py`
+- `tests/tools/test_base_environment.py`
+- `tests/tools/test_file_tools.py`
+- `_bmad-output/implementation-artifacts/spec-2-1a-full-regression-blockers.md`
+- `_bmad-output/implementation-artifacts/investigations/story-2-1a-full-regression-gate-investigation.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
 
 ### Review Findings
 
@@ -320,6 +356,7 @@ Test execution logs from `python -m pytest tests/project_work/test_bindings.py -
 - [x] [Review][Patch] Schema initialization and verification still accept invalid Project Binding schemas and can return unusable or under-constrained databases [hermes_project_work/bindings.py:205]
 - [x] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy, blank, and contradictory persisted identities [hermes_project_work/bindings.py:553]
 - [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1870]
-- [ ] [Review][Patch] Schema initialization and verification still accept invalid Project Binding schemas and can return unusable or under-constrained databases [hermes_project_work/bindings.py:205]
-- [ ] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy, blank, and contradictory persisted identities [hermes_project_work/bindings.py:582]
-- [ ] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1870]
+- [x] [Review][Patch] Schema initialization and verification still accept invalid Project Binding schemas and can return unusable or under-constrained databases [hermes_project_work/bindings.py:205]
+- [x] [Review][Patch] Provider Controller Identity and JSON validation still accept lossy, blank, and contradictory persisted identities [hermes_project_work/bindings.py:582]
+- [x] [Review][Patch] The focused TEA suite still contains false-positive and non-portable persistence evidence [tests/project_work/test_bindings.py:1870]
+- [x] [Review][Patch] Cold init path calls _migrate_add_optional_columns twice (once inside _ensure_schema, once explicitly) while warm path calls it once [hermes_project_work/bindings.py:167]

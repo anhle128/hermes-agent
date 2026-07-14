@@ -18,6 +18,7 @@ the guard? Add a test here too.
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 
@@ -26,6 +27,11 @@ import pytest
 # A guaranteed-foreign PID: PID 1 (init).  Owned by root, not us, and
 # always exists. A sane guard refuses to signal it.
 FOREIGN_PID = 1
+
+
+def _require_systemctl():
+    if shutil.which("systemctl") is None:
+        pytest.skip("systemctl is not available on this host")
 
 
 # ──────────────────── kill primitives ─────────────────────────
@@ -206,6 +212,7 @@ def test_subprocess_killall_hermes_blocked():
 
 def test_systemctl_status_passes_through():
     """Read-only systemctl probes (status/show/list-units) are fine."""
+    _require_systemctl()
     # Run with check=False so we don't fail on the gateway's exit code.
     r = subprocess.run(
         ["systemctl", "--user", "status", "hermes-gateway", "--no-pager"],
@@ -217,6 +224,7 @@ def test_systemctl_status_passes_through():
 
 
 def test_systemctl_show_passes_through():
+    _require_systemctl()
     r = subprocess.run(
         ["systemctl", "--user", "show", "hermes-gateway", "--no-pager"],
         capture_output=True,
@@ -227,6 +235,7 @@ def test_systemctl_show_passes_through():
 
 
 def test_systemctl_list_units_passes_through():
+    _require_systemctl()
     r = subprocess.run(
         ["systemctl", "--user", "list-units", "fake-not-real-unit*", "--no-pager"],
         capture_output=True,
@@ -238,6 +247,7 @@ def test_systemctl_list_units_passes_through():
 
 def test_systemctl_unrelated_unit_passes_through():
     """systemctl restart of a non-hermes unit is allowed (we only protect hermes)."""
+    _require_systemctl()
     # Use --dry-run so we don't actually try to restart anything; just
     # verify the guard doesn't block the call. systemctl supports
     # --dry-run via the privileged API; on user scope it usually fails

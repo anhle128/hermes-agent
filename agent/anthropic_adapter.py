@@ -908,8 +908,11 @@ def _read_claude_code_credentials_from_keychain() -> Optional[Dict[str, Any]]:
 
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except (TypeError, json.JSONDecodeError):
         logger.debug("Keychain: credentials payload is not valid JSON")
+        return None
+    if not isinstance(data, dict):
+        logger.debug("Keychain: credentials payload is not a JSON object")
         return None
 
     oauth_data = data.get("claudeAiOauth")

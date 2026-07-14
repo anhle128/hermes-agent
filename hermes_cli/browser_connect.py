@@ -271,6 +271,12 @@ class ChromeDebugLaunch:
                     f"{os.path.basename(attempt.binary)} exited before the debug port opened: "
                     f"{attempt.stderr_tail.splitlines()[-1].strip()}"
                 )
+        for attempt in self.attempts:
+            if attempt.state == "spawn-failed":
+                return (
+                    f"{os.path.basename(attempt.binary)} could not be launched automatically. "
+                    "Start a Chromium-family browser with remote debugging and retry /browser connect."
+                )
         return None
 
 

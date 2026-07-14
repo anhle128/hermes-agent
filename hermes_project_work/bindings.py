@@ -159,12 +159,15 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     concurrent writer), this raises ``OperationalError``.  We do NOT swallow
     errors here — if schema init fails, the connection is unusable and the
     caller must retry.  Lock errors are retried by ``connect()``.
+
+    Does NOT call ``_migrate_add_optional_columns()`` — callers handle
+    migration explicitly so the migration seam fires exactly once per
+    ``connect()`` regardless of which init path is taken.
     """
     from hermes_state import apply_wal_with_fallback
 
     apply_wal_with_fallback(conn, db_label="project_bindings.db")
     conn.executescript(SCHEMA_SQL)
-    _migrate_add_optional_columns(conn)
 
 
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
@@ -203,14 +206,46 @@ _SCHEMA_INIT_BACKOFF_MS = 10
 
 
 def _init_connection_with_retry(conn: sqlite3.Connection) -> None:
-    """Retry WAL + schema init on lock errors; raise on all other failures."""
+    """Retry WAL + schema init on lock errors; raise on all other failures.
+
+    Checks whether the ``project_bindings`` table already exists before
+    running ``executescript(SCHEMA_SQL)``.  ``CREATE TABLE IF NOT EXISTS``
+    silently skips when a pre-existing table exists — but the subsequent
+    ``CREATE UNIQUE INDEX`` statements reference columns that may not
+    exist in a broken pre-existing table, raising ``OperationalError``.
+    When a pre-existing table is detected, schema completeness is verified
+    via ``_verify_complete_schema`` and, if incomplete, repaired additively
+    via ``_repair_schema_additive`` — avoiding the index-on-missing-column
+    error entirely.
+    """
     from hermes_state import apply_wal_with_fallback
 
     for attempt in range(_SCHEMA_INIT_RETRIES):
         try:
             apply_wal_with_fallback(conn, db_label="project_bindings.db")
             conn.execute("PRAGMA foreign_keys=ON")
-            _ensure_schema(conn)
+            table_exists = conn.execute(
+                "SELECT name FROM sqlite_master"
+                " WHERE type='table' AND name='project_bindings'"
+            ).fetchone()
+            if table_exists:
+                if not _verify_complete_schema(conn):
+                    _repair_schema_additive(conn)
+                    if not _verify_complete_schema(conn):
+                        raise RuntimeError(
+                            "schema initialization completed but verification "
+                            "still failed — the DB file may be corrupt or "
+                            "externally modified"
+                        )
+            else:
+                _ensure_schema(conn)
+                if not _verify_complete_schema(conn):
+                    raise RuntimeError(
+                        "schema initialization completed but verification "
+                        "still failed — the DB file may be corrupt or "
+                        "externally modified"
+                    )
+            _migrate_add_optional_columns(conn)
             return
         except sqlite3.OperationalError as exc:
             if _is_lock_error(exc) and attempt < _SCHEMA_INIT_RETRIES - 1:
@@ -529,6 +564,8 @@ def _require_nonblank_str(value: object, field_name: str) -> str:
         raise TypeError(
             f"{field_name} must be a string, got {type(value).__name__}"
         )
+    if "\x00" in value:
+        raise ValueError(f"{field_name} must not contain null bytes")
     if not value.strip():
         raise ValueError(f"{field_name} must not be blank")
     return value
@@ -553,6 +590,10 @@ def _validate_github_reference(
         raise ValueError("github_reference['owner'] must not contain '/'")
     if "/" in repo:
         raise ValueError("github_reference['repo'] must not contain '/'")
+    if "\x00" in owner:
+        raise ValueError("github_reference['owner'] must not contain null bytes")
+    if "\x00" in repo:
+        raise ValueError("github_reference['repo'] must not contain null bytes")
     _require_json_compatible(ref, "github_reference")
     return ref
 
@@ -586,6 +627,12 @@ def _require_json_compatible(
         raise TypeError(
             f"{loc} contains non-JSON-compatible type "
             f"{type(value).__name__}"
+        )
+    if isinstance(value, str) and "\x00" in value:
+        loc = f"{field_name}{path}"
+        raise TypeError(
+            f"{loc} contains null byte in string value "
+            f"(would cause silent truncation in SQLite)"
         )
     if isinstance(value, float) and not math.isfinite(value):
         loc = f"{field_name}{path}"

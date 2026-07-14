@@ -2435,6 +2435,190 @@ class TestProviderIdentityNullStorageAtDbLevel:
             assert row["provider_binding_name"] is None
 
 
+@requires_bindings_module
+class TestColdPathSchemaVerification:
+    """Finding 317: _init_connection_with_retry must verify schema
+    completeness after _ensure_schema. CREATE TABLE IF NOT EXISTS silently
+    skips when a pre-existing table exists — even if that table has wrong
+    columns, missing PRIMARY KEY, or missing indexes. Without post-init
+    verification, a DB file with a broken pre-existing table would pass
+    initialization but produce confusing errors on first use."""
+
+    def test_cold_init_repair_fixes_preexisting_broken_table(self, db_path):
+        """When connect() is called against a DB file with a pre-existing
+        broken table (missing column), the cold init path must detect the
+        broken schema via _verify_complete_schema and repair it additively
+        — the resulting connection must have a complete schema."""
+        conn_broken = sqlite3.connect(str(db_path))
+        try:
+            conn_broken.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      TEXT PRIMARY KEY,
+                    profile                 TEXT NOT NULL,
+                    display_name            TEXT NOT NULL,
+                    bound_project_cwd       TEXT NOT NULL,
+                    created_at              INTEGER NOT NULL
+                );
+            """)
+        finally:
+            conn_broken.close()
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+            result = pb.create_binding(conn, **valid_kwargs())
+            assert result["conflict"] is False
+            binding = pb.get_binding(conn, result["id"])
+            assert binding is not None
+            assert binding.display_name == "Hermes Agent"
+        finally:
+            conn.close()
+
+    def test_cold_init_repair_fixes_preexisting_missing_indexes(self, db_path):
+        """When connect() is called against a DB file with a pre-existing
+        table that has the right columns but missing indexes, the cold init
+        path must detect and repair the missing indexes."""
+        conn_broken = sqlite3.connect(str(db_path))
+        try:
+            conn_broken.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      TEXT PRIMARY KEY,
+                    profile                 TEXT NOT NULL,
+                    display_name            TEXT NOT NULL,
+                    bound_project_cwd       TEXT NOT NULL,
+                    github_reference        TEXT,
+                    github_reference_key    TEXT,
+                    bmad_skill_dir          TEXT,
+                    provider_name           TEXT,
+                    provider_binding_name   TEXT,
+                    provider_metadata       TEXT,
+                    created_at              INTEGER NOT NULL
+                );
+            """)
+        finally:
+            conn_broken.close()
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+            indexes = conn.execute("PRAGMA index_list(project_bindings)").fetchall()
+            index_names = {row["name"] for row in indexes}
+            assert "uq_pb_profile_cwd" in index_names
+            assert "uq_pb_profile_github_key" in index_names
+            assert "uq_pb_profile_bmad_dir" in index_names
+            assert "uq_pb_profile_provider" in index_names
+        finally:
+            conn.close()
+
+    def test_cold_init_raises_when_repair_cannot_restore_schema(self, db_path):
+        """When the cold init path cannot repair the schema (e.g. the DB
+        file is corrupt), it raises RuntimeError instead of returning a
+        connection with a broken schema."""
+        conn_broken = sqlite3.connect(str(db_path))
+        try:
+            conn_broken.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      TEXT PRIMARY KEY,
+                    profile                 TEXT NOT NULL,
+                    display_name            TEXT NOT NULL,
+                    bound_project_cwd       TEXT NOT NULL,
+                    created_at              INTEGER NOT NULL
+                );
+            """)
+            conn_broken.execute(
+                "ALTER TABLE project_bindings DROP COLUMN display_name"
+            )
+            conn_broken.commit()
+        finally:
+            conn_broken.close()
+
+        original_repair = pb._repair_schema_additive
+        def broken_repair(conn):
+            pass
+        pb._repair_schema_additive = broken_repair
+        try:
+            with pytest.raises(RuntimeError, match="verification still failed"):
+                pb.connect(db_path=db_path)
+        finally:
+            pb._repair_schema_additive = original_repair
+            pb._INITIALIZED_PATHS.discard(str(db_path.resolve()))
+
+
+@requires_bindings_module
+class TestNullByteRejectionInStringFields:
+    """Finding 318: null bytes must be rejected in all string fields that
+    reach SQLite — display_name (via _require_nonblank_str), github
+    owner/repo (via _validate_github_reference), and JSON string values
+    (via _require_json_compatible). Null bytes cause silent truncation
+    in SQLite and C-level string operations."""
+
+    def test_reject_display_name_with_embedded_null(self, conn):
+        """display_name containing null bytes is rejected by
+        _require_nonblank_str — null bytes cause silent truncation in
+        SQLite."""
+        with pytest.raises(ValueError, match="null bytes"):
+            pb.create_binding(conn, **valid_kwargs(display_name="test\x00name"))
+        assert row_count(conn) == 0
+
+    def test_reject_github_owner_with_embedded_null(self, conn):
+        """github_reference owner containing null bytes is rejected by
+        _validate_github_reference — null bytes cause silent truncation."""
+        with pytest.raises(ValueError, match="null bytes"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(github_reference={"owner": "test\x00owner", "repo": "ok"}),
+            )
+        assert row_count(conn) == 0
+
+    def test_reject_github_repo_with_embedded_null(self, conn):
+        """github_reference repo containing null bytes is rejected."""
+        with pytest.raises(ValueError, match="null bytes"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(github_reference={"owner": "ok", "repo": "test\x00repo"}),
+            )
+        assert row_count(conn) == 0
+
+    def test_reject_null_byte_in_provider_metadata_string_value(self, conn):
+        """provider_metadata with null bytes in string values is rejected
+        by _require_json_compatible — catches null bytes in nested JSON
+        string values before they reach SQLite."""
+        bad_metadata = {"bindingId": "wpb_\x00_injected"}
+        with pytest.raises(TypeError, match="null byte"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="default",
+                    provider_metadata=bad_metadata,
+                ),
+            )
+        assert row_count(conn) == 0
+
+    def test_reject_null_byte_in_github_reference_extra_string_value(self, conn):
+        """github_reference with null bytes in extra string values is
+        rejected by _require_json_compatible."""
+        bad_ref = {"owner": "test", "repo": "ok", "extra": "value\x00injected"}
+        with pytest.raises(TypeError, match="null byte"):
+            pb.create_binding(conn, **valid_kwargs(github_reference=bad_ref))
+        assert row_count(conn) == 0
+
+    def test_reject_null_byte_in_nested_json_string_value(self, conn):
+        """provider_metadata with null bytes in nested string values is
+        rejected — the recursive check catches null bytes at any depth."""
+        bad_metadata = {"nested": {"deep": "value\x00injected"}}
+        with pytest.raises(TypeError, match="null byte"):
+            pb.create_binding(
+                conn,
+                **valid_kwargs(
+                    provider_name="archon",
+                    provider_binding_name="default",
+                    provider_metadata=bad_metadata,
+                ),
+            )
+        assert row_count(conn) == 0
+
+
 # =============================================================================
 # Contract validation (executable now — targets the already-shipped fixture
 # package, not hermes_project_work; not gated by the module skip above)
