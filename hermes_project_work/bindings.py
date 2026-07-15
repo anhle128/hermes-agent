@@ -753,6 +753,113 @@ def _serialize_json(value: dict, field_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Story 2.1b — validation checks
+# ---------------------------------------------------------------------------
+
+
+def _check_cwd_safety(cwd: str) -> dict:
+    """Check whether a Bound Project Cwd is safe for automation.
+
+    The allowed-root policy this story defines: a Bound Project Cwd must
+    (1) exist, (2) be a directory, (3) not be a filesystem root, (4) not
+    be ``get_hermes_home()`` itself or nested inside it, and (5) contain a
+    ``.git`` directory.  Rules 3-4 are a minimal denylist — root is too
+    broad/destructive as an automation target; Hermes's own home directory
+    is a self-modifying-automation hazard (BMAD/provider workflow actions
+    running there could corrupt Hermes's own profile data).
+
+    Assumes *cwd* is already an absolute, normalized path (the value stored
+    via ``_normalize_path`` at creation time) — does not re-normalize.
+    """
+    p = Path(cwd)
+
+    if not p.exists():
+        return {"valid": False, "reason": "cwd_does_not_exist"}
+
+    if not p.is_dir():
+        return {"valid": False, "reason": "cwd_is_not_a_directory"}
+
+    if p.parent == p:
+        return {"valid": False, "reason": "cwd_is_filesystem_root"}
+
+    hermes_home = Path(get_hermes_home()).resolve()
+    resolved = p.resolve()
+    if resolved == hermes_home or hermes_home in resolved.parents:
+        return {"valid": False, "reason": "cwd_is_within_hermes_home"}
+
+    if not (p / ".git").is_dir():
+        return {"valid": False, "reason": "cwd_is_not_a_git_repository"}
+
+    return {"valid": True, "reason": None}
+
+
+def _check_bmad_reference_safety(bmad_skill_dir: Optional[str]) -> Optional[dict]:
+    """Check whether a BMAD skill directory reference exists on disk.
+
+    Returns ``None`` when *bmad_skill_dir* is ``None`` (nothing to validate).
+    Does NOT touch ``skills.external_dirs``, attempt a mount, or reload any
+    profile skill index — mounting belongs to Story 2.2.
+    """
+    if bmad_skill_dir is None:
+        return None
+
+    p = Path(bmad_skill_dir)
+    if not p.exists():
+        return {"valid": False, "reason": "bmad_skill_dir_does_not_exist"}
+    if not p.is_dir():
+        return {"valid": False, "reason": "bmad_skill_dir_is_not_a_directory"}
+    return {"valid": True, "reason": None}
+
+
+def _check_github_reference_safety(github_reference: Optional[dict]) -> dict:
+    """Non-raising re-validation wrapper around ``_validate_github_reference``.
+
+    ``_validate_github_reference`` raises on bad input (correct for the
+    create path).  This wrapper converts any raised exception into a
+    structured ``{"valid": False, "reason": ...}`` result so that
+    ``validate_binding()`` can return a diagnostic for already-persisted
+    rows with malformed stored data.
+    """
+    if github_reference is None:
+        return {"valid": True, "reason": None}
+    try:
+        _validate_github_reference(github_reference)
+        return {"valid": True, "reason": None}
+    except (TypeError, ValueError) as exc:
+        return {"valid": False, "reason": str(exc)}
+
+
+def _check_provider_metadata_safety(
+    provider_name: Optional[str],
+    provider_binding_name: Optional[str],
+    provider_metadata: Optional[dict],
+) -> dict:
+    """Non-raising re-validation wrapper around ``_validate_provider_identity``.
+
+    See ``_check_github_reference_safety`` for the raising-vs-non-raising
+    rationale.
+    """
+    try:
+        _validate_provider_identity(provider_name, provider_binding_name, provider_metadata)
+        return {"valid": True, "reason": None}
+    except (TypeError, ValueError) as exc:
+        return {"valid": False, "reason": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Story 2.1b — conflict detection
+# ---------------------------------------------------------------------------
+
+
+_CONFLICT_CATEGORY_BY_DIMENSION: dict[str, str] = {
+    "bound_project_cwd": "cwd_conflict",
+    "github_reference_key": "github_reference_conflict",
+    "bmad_skill_dir": "bmad_mount_conflict",
+    "provider_identity": "provider_identity_conflict",
+}
+
+
+# ---------------------------------------------------------------------------
 # Uniqueness pre-check
 # ---------------------------------------------------------------------------
 
@@ -765,14 +872,25 @@ def _check_uniqueness_dimensions(
     normalized_bmad_dir: Optional[str],
     provider_name: Optional[str],
     provider_binding_name: Optional[str],
+    *,
+    exclude_binding_id: Optional[str] = None,
 ) -> dict[str, str]:
-    """Return ``{dimension: existing_id}`` for every colliding dimension."""
+    """Return ``{dimension: existing_id}`` for every colliding dimension.
+
+    When *exclude_binding_id* is provided, each dimension query excludes
+    that row — used by ``validate_binding()`` so a binding is never
+    reported as conflicting with itself.
+    """
     violations: dict[str, str] = {}
+
+    base_exclude = " AND id != ?" if exclude_binding_id is not None else ""
+    exclude_param: tuple = (exclude_binding_id,) if exclude_binding_id is not None else ()
 
     row = conn.execute(
         "SELECT id FROM project_bindings"
-        " WHERE profile = ? AND bound_project_cwd = ?",
-        (profile, normalized_cwd),
+        " WHERE profile = ? AND bound_project_cwd = ?"
+        + base_exclude,
+        (profile, normalized_cwd, *exclude_param),
     ).fetchone()
     if row:
         violations["bound_project_cwd"] = row["id"]
@@ -780,8 +898,9 @@ def _check_uniqueness_dimensions(
     if github_key is not None:
         row = conn.execute(
             "SELECT id FROM project_bindings"
-            " WHERE profile = ? AND github_reference_key = ?",
-            (profile, github_key),
+            " WHERE profile = ? AND github_reference_key = ?"
+            + base_exclude,
+            (profile, github_key, *exclude_param),
         ).fetchone()
         if row:
             violations["github_reference_key"] = row["id"]
@@ -789,8 +908,9 @@ def _check_uniqueness_dimensions(
     if normalized_bmad_dir is not None:
         row = conn.execute(
             "SELECT id FROM project_bindings"
-            " WHERE profile = ? AND bmad_skill_dir = ?",
-            (profile, normalized_bmad_dir),
+            " WHERE profile = ? AND bmad_skill_dir = ?"
+            + base_exclude,
+            (profile, normalized_bmad_dir, *exclude_param),
         ).fetchone()
         if row:
             violations["bmad_skill_dir"] = row["id"]
@@ -799,8 +919,9 @@ def _check_uniqueness_dimensions(
         row = conn.execute(
             "SELECT id FROM project_bindings"
             " WHERE profile = ? AND provider_name = ?"
-            " AND provider_binding_name = ?",
-            (profile, provider_name, provider_binding_name),
+            " AND provider_binding_name = ?"
+            + base_exclude,
+            (profile, provider_name, provider_binding_name, *exclude_param),
         ).fetchone()
         if row:
             violations["provider_identity"] = row["id"]
@@ -940,3 +1061,278 @@ def list_bindings_for_profile(
         (profile.strip(),),
     ).fetchall()
     return [_binding_from_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Story 2.1b — public validation entrypoints
+# ---------------------------------------------------------------------------
+
+
+def preview_binding_conflicts(
+    conn: sqlite3.Connection,
+    *,
+    profile: Optional[str] = None,
+    bound_project_cwd: str,
+    github_reference: Optional[dict] = None,
+    bmad_skill_dir: Optional[str] = None,
+    provider_name: Optional[str] = None,
+    provider_binding_name: Optional[str] = None,
+) -> list[dict]:
+    """Pre-flight conflict check — read-only, never inserts a row.
+
+    Normalizes inputs exactly like ``create_binding()`` and returns a list
+    of ``{"category": ..., "conflicting_binding_id": ...}`` dicts for every
+    uniqueness dimension the candidate collides on.
+    """
+    resolved_profile = _resolve_profile(profile)
+    _require_nonblank_str(bound_project_cwd, "bound_project_cwd")
+
+    gh_ref = _validate_github_reference(github_reference)
+    pn, pbn = _validate_provider_identity(provider_name, provider_binding_name)
+
+    normalized_cwd = _normalize_path(bound_project_cwd)
+    normalized_bmad = (
+        _normalize_path(bmad_skill_dir) if bmad_skill_dir is not None else None
+    )
+    gh_key = _github_reference_key(gh_ref) if gh_ref else None
+
+    violations = _check_uniqueness_dimensions(
+        conn,
+        resolved_profile,
+        normalized_cwd,
+        gh_key,
+        normalized_bmad,
+        pn,
+        pbn,
+    )
+
+    return [
+        {
+            "category": _CONFLICT_CATEGORY_BY_DIMENSION[dim],
+            "conflicting_binding_id": existing_id,
+        }
+        for dim, existing_id in violations.items()
+    ]
+
+
+def _load_raw_row(
+    conn: sqlite3.Connection, binding_id: str
+) -> sqlite3.Row:
+    """Load a raw row by id; raise ``ValueError`` if not found."""
+    row = conn.execute(
+        "SELECT * FROM project_bindings WHERE id = ?", (binding_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"no project binding found with id {binding_id!r}")
+    return row
+
+
+def _parse_json_field(
+    raw: Optional[str],
+) -> tuple[object, Optional[str]]:
+    """Parse a JSON column value, returning ``(parsed, error_reason)``.
+
+    On success ``error_reason`` is ``None``.  On failure ``parsed`` is
+    ``None`` and ``error_reason`` describes the problem.
+    """
+    if raw is None:
+        return None, None
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as exc:
+        return None, str(exc)
+    if not isinstance(parsed, dict):
+        return None, (
+            f"value must be a dict after JSON parsing, "
+            f"got {type(parsed).__name__}"
+        )
+    return parsed, None
+
+
+def validate_binding(
+    conn: sqlite3.Connection, binding_id: str
+) -> dict:
+    """Unified re-validation entrypoint for an existing Project Binding.
+
+    Returns a structured result with per-check outcomes, conflicts, and
+    diagnostics.  Raises ``ValueError`` only when *binding_id* does not
+    resolve to any row (caller/programmer error).
+
+    ``validation_state`` precedence (first match wins):
+    ``"invalid_cwd"`` > ``"invalid_bmad_reference"`` >
+    ``"invalid_github_reference"`` > ``"invalid_provider_metadata"`` >
+    ``"conflicting"`` > ``"valid"``.
+    """
+    row = _load_raw_row(conn, binding_id)
+
+    cwd_check = _check_cwd_safety(row["bound_project_cwd"])
+    bmad_check = _check_bmad_reference_safety(row["bmad_skill_dir"])
+
+    gh_raw = row["github_reference"]
+    gh_parsed, gh_parse_error = _parse_json_field(gh_raw)
+    if gh_parse_error is not None:
+        github_check = {"valid": False, "reason": gh_parse_error}
+    else:
+        github_check = _check_github_reference_safety(gh_parsed)
+
+    pm_raw = row["provider_metadata"]
+    pm_parsed, pm_parse_error = _parse_json_field(pm_raw)
+    if pm_parse_error is not None:
+        provider_check = {"valid": False, "reason": pm_parse_error}
+    else:
+        provider_check = _check_provider_metadata_safety(
+            row["provider_name"],
+            row["provider_binding_name"],
+            pm_parsed,
+        )
+
+    conflicts = _compute_conflicts(conn, row)
+
+    diagnostics = _assemble_diagnostics(
+        cwd_check, bmad_check, github_check, provider_check, conflicts
+    )
+
+    validation_state = _compute_validation_state(
+        cwd_check, bmad_check, github_check, provider_check, conflicts
+    )
+    safe = validation_state == "valid"
+
+    return {
+        "binding_id": binding_id,
+        "safe": safe,
+        "validation_state": validation_state,
+        "cwd_check": cwd_check,
+        "bmad_reference_check": bmad_check,
+        "github_reference_check": github_check,
+        "provider_metadata_check": provider_check,
+        "conflicts": conflicts,
+        "diagnostics": diagnostics,
+    }
+
+
+def _compute_conflicts(
+    conn: sqlite3.Connection, row: sqlite3.Row
+) -> list[dict]:
+    """Compute the conflict list for an existing binding, excluding itself."""
+    gh_raw = row["github_reference"]
+    gh_parsed, gh_error = _parse_json_field(gh_raw)
+    gh_key = None
+    if gh_parsed is not None and gh_error is None:
+        try:
+            gh_key = _github_reference_key(gh_parsed)
+        except (KeyError, TypeError, AttributeError):
+            gh_key = None
+
+    pm_raw = row["provider_metadata"]
+    pm_parsed, pm_error = _parse_json_field(pm_raw)
+    pn = row["provider_name"]
+    pbn = row["provider_binding_name"]
+    if pm_error is not None:
+        pn = None
+        pbn = None
+
+    violations = _check_uniqueness_dimensions(
+        conn,
+        row["profile"],
+        row["bound_project_cwd"],
+        gh_key,
+        row["bmad_skill_dir"],
+        pn,
+        pbn,
+        exclude_binding_id=row["id"],
+    )
+
+    return [
+        {
+            "category": _CONFLICT_CATEGORY_BY_DIMENSION[dim],
+            "conflicting_binding_id": existing_id,
+        }
+        for dim, existing_id in violations.items()
+    ]
+
+
+def _assemble_diagnostics(
+    cwd_check: dict,
+    bmad_check: Optional[dict],
+    github_check: dict,
+    provider_check: dict,
+    conflicts: list[dict],
+) -> list[dict]:
+    """Build the diagnostics list from check results and conflicts."""
+    diagnostics: list[dict] = []
+
+    if not cwd_check["valid"]:
+        diagnostics.append({
+            "category": "invalid_cwd",
+            "message": (
+                f"Bound Project Cwd is unsafe: {cwd_check['reason']}"
+            ),
+            "next_action_owner": "configuration",
+            "recovery_option": "repair_project_binding",
+        })
+
+    if bmad_check is not None and not bmad_check["valid"]:
+        diagnostics.append({
+            "category": "invalid_bmad_reference",
+            "message": (
+                f"BMAD skill directory reference is invalid: "
+                f"{bmad_check['reason']}"
+            ),
+            "next_action_owner": "configuration",
+            "recovery_option": "repair_project_binding",
+        })
+
+    if not github_check["valid"]:
+        diagnostics.append({
+            "category": "invalid_github_reference",
+            "message": (
+                f"GitHub reference is invalid: {github_check['reason']}"
+            ),
+            "next_action_owner": "configuration",
+            "recovery_option": "repair_project_binding",
+        })
+
+    if not provider_check["valid"]:
+        diagnostics.append({
+            "category": "invalid_provider_metadata",
+            "message": (
+                f"Provider metadata is invalid: {provider_check['reason']}"
+            ),
+            "next_action_owner": "configuration",
+            "recovery_option": "repair_project_binding",
+        })
+
+    for conflict in conflicts:
+        diagnostics.append({
+            "category": conflict["category"],
+            "message": (
+                f"Conflict detected on dimension "
+                f"{conflict['category']}: binding "
+                f"{conflict['conflicting_binding_id']}"
+            ),
+            "next_action_owner": "configuration",
+            "recovery_option": "update_project_binding",
+        })
+
+    return diagnostics
+
+
+def _compute_validation_state(
+    cwd_check: dict,
+    bmad_check: Optional[dict],
+    github_check: dict,
+    provider_check: dict,
+    conflicts: list[dict],
+) -> str:
+    """Compute the validation_state string using precedence rules."""
+    if not cwd_check["valid"]:
+        return "invalid_cwd"
+    if bmad_check is not None and not bmad_check["valid"]:
+        return "invalid_bmad_reference"
+    if not github_check["valid"]:
+        return "invalid_github_reference"
+    if not provider_check["valid"]:
+        return "invalid_provider_metadata"
+    if conflicts:
+        return "conflicting"
+    return "valid"
