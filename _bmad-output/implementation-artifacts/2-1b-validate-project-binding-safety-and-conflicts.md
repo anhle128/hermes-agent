@@ -86,6 +86,7 @@ so that automation fails closed for unsafe or ambiguous project context.
 - [x] [Review][Patch] `git diff --check` fails on trailing whitespace [_bmad-output/test-artifacts/test-design-epic-2.1b.md:34]
 - [x] [Review][Patch] `git diff --check` still fails on trailing whitespace [_bmad-output/test-artifacts/test-design-epic-2.1b.md:35]
 - [x] [Review][Patch] Provider metadata invalid UTF-8 regression coverage is missing [tests/project_work/test_bindings.py:3673]
+- [ ] [Review][Patch] `validate_binding()` suppresses conflict diagnostics when stored JSON is malformed [hermes_project_work/bindings.py:1218]
 
 ## Dev Notes
 
