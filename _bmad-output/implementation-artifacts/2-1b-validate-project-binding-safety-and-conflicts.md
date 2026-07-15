@@ -1,6 +1,6 @@
 # Story 2.1b: Validate Project Binding Safety And Conflicts
 
-Status: implemented
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -78,6 +78,12 @@ so that automation fails closed for unsafe or ambiguous project context.
     - Unknown `binding_id` → `validate_binding()` raises `ValueError`.
     - **Invariant test:** any binding created through `create_binding()` always has `conflicts == []` when re-validated — proving the unique-index guarantee described in Task 4 holds for the existing-binding re-scan path.
   - [x] Follow the `tmp_path`-based, real-connection, no-mock fixture convention already used throughout this test file (and required by this project's Testing Rules for code touching file/persistence I/O).
+
+### Review Findings
+
+- [ ] [Review][Patch] `validate_binding()` raises on invalid UTF-8 JSON bytes [hermes_project_work/bindings.py:1140]
+- [ ] [Review][Patch] `preview_binding_conflicts()` accepts a blank profile unlike `create_binding()` [hermes_project_work/bindings.py:1087]
+- [ ] [Review][Patch] `git diff --check` fails on trailing whitespace [_bmad-output/test-artifacts/test-design-epic-2.1b.md:34]
 
 ## Dev Notes
 
