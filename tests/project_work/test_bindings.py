@@ -3688,6 +3688,24 @@ class TestValidateBinding:
         assert result["github_reference_check"]["reason"] is not None
         assert any(d["category"] == "invalid_github_reference" for d in result["diagnostics"])
 
+    def test_invalid_utf8_bytes_in_provider_metadata_returns_diagnostic(self, conn, tmp_path):
+        """_parse_json_field must catch UnicodeDecodeError when stored
+        provider_metadata contains invalid UTF-8 bytes, returning a
+        structured diagnostic instead of raising."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        conn.execute(
+            "UPDATE project_bindings SET provider_metadata = ? WHERE id = ?",
+            (b"\xff\xfe", created["id"]),
+        )
+        conn.commit()
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_provider_metadata"
+        assert result["provider_metadata_check"]["valid"] is False
+        assert result["provider_metadata_check"]["reason"] is not None
+        assert any(d["category"] == "invalid_provider_metadata" for d in result["diagnostics"])
+
 
 class TestDiagnosticContractVocabulary:
     """Contract tests for `validate_binding()`'s diagnostic vocabulary
