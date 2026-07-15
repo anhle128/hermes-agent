@@ -13169,18 +13169,47 @@ def _normalize_cdp_url(parsed) -> str:
     return parsed._replace(path="", params="", query="", fragment="").geturl()
 
 
-def _failure_messages(url: str, port: int, system: str) -> list[str]:
+def _failure_messages(
+    url: str,
+    port: int,
+    system: str,
+    *,
+    has_executable_candidate: bool | None = None,
+) -> list[str]:
     from hermes_cli.browser_connect import manual_chrome_debug_command
 
+    if has_executable_candidate is None:
+        from hermes_cli.browser_connect import get_chrome_debug_candidates
+
+        has_executable_candidate = bool(get_chrome_debug_candidates(system))
+
     command = manual_chrome_debug_command(port, system)
-    hint = (
-        ["Start a Chromium-family browser with remote debugging, then retry /browser connect:", command]
-        if command
-        else [
-            "No supported Chromium-family browser executable was found in this environment.",
-            f"Install one or start a Chromium-family browser with --remote-debugging-port={port}, then retry /browser connect.",
-        ]
-    )
+    hint: list[str] = []
+    if not has_executable_candidate:
+        hint.extend(
+            [
+                "No supported Chromium-family browser executable was found in this environment.",
+                f"Install one or start a Chromium-family browser with --remote-debugging-port={port}, then retry /browser connect.",
+            ]
+        )
+        if command:
+            hint.extend(
+                [
+                    "If a Chromium-family browser is installed but not in a standard location, try launching it manually:",
+                    command,
+                ]
+            )
+    elif command:
+        hint.extend(
+            [
+                "Start a Chromium-family browser with remote debugging, then retry /browser connect:",
+                command,
+            ]
+        )
+    else:
+        hint.append(
+            f"Start a Chromium-family browser with --remote-debugging-port={port}, then retry /browser connect."
+        )
     return [
         f"Browser CDP is not reachable at {url}.",
         *hint,
@@ -13287,7 +13316,12 @@ def _browser_connect(rid, params: dict) -> dict:
                     hint = launch.hint
                     if hint:
                         announce(hint, level="error")
-                    for line in _failure_messages(url, port, system)[1:]:
+                    for line in _failure_messages(
+                        url,
+                        port,
+                        system,
+                        has_executable_candidate=bool(launch.attempts),
+                    ):
                         announce(line, level="error")
                     return _ok(
                         rid, {"connected": False, "url": url, "messages": messages}

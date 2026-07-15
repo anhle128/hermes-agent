@@ -202,6 +202,31 @@ class TestSpawnAsyncDiagnostic:
         # is plenty of headroom and proves we're not waiting on it.
         assert elapsed < 1.0, f"spawn blocked for {elapsed:.2f}s"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only diagnostic")
+    def test_fallback_without_timeout_still_bounds_diagnostic(self, tmp_path, monkeypatch):
+        captured = {}
+
+        class FakeProc:
+            pid = 12345
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["kwargs"] = kwargs
+            return FakeProc()
+
+        monkeypatch.setattr(sf.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(sf.subprocess, "Popen", fake_popen)
+
+        pid = sf.spawn_async_diagnostic(
+            tmp_path / "diag.log", "SIGTERM", timeout_seconds=2.5
+        )
+
+        assert pid == 12345
+        assert captured["cmd"][0] == (sys.executable or "python3")
+        assert captured["cmd"][1] == "-c"
+        assert "os.killpg" in captured["cmd"][2]
+        assert captured["cmd"][-1] == "2.500"
+
 
 # ---------------------------------------------------------------------------
 # _parse_systemd_duration_to_us

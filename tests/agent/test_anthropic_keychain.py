@@ -3,6 +3,8 @@
 import json
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 
 from agent.anthropic_adapter import (
     _read_claude_code_credentials_from_keychain,
@@ -47,6 +49,13 @@ class TestReadClaudeCodeCredentialsFromKeychain:
         with patch("agent.anthropic_adapter.platform.system", return_value="Darwin"), \
              patch("agent.anthropic_adapter.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="not valid json", stderr="")
+            assert _read_claude_code_credentials_from_keychain() is None
+
+    @pytest.mark.parametrize("payload", ["[]", '"token"', "null"])
+    def test_returns_none_for_non_object_json_payload(self, payload):
+        with patch("agent.anthropic_adapter.platform.system", return_value="Darwin"), \
+             patch("agent.anthropic_adapter.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=payload, stderr="")
             assert _read_claude_code_credentials_from_keychain() is None
 
     def test_returns_none_when_password_field_is_missing_claude_ai_oauth(self):
@@ -334,4 +343,3 @@ class TestRefreshOAuthTokenAdoptsFreshCredential:
         assert result == "newly-minted"
         # Prefers the live source's refresh token over the caller's stale copy.
         assert captured["refresh_token"] == "live-refresh"
-
