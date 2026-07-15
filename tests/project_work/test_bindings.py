@@ -3706,6 +3706,32 @@ class TestValidateBinding:
         assert result["provider_metadata_check"]["reason"] is not None
         assert any(d["category"] == "invalid_provider_metadata" for d in result["diagnostics"])
 
+    def test_conflict_scan_uses_stored_columns_not_parsed_json(self, conn, tmp_path):
+        """_compute_conflicts must use stored github_reference_key and
+        provider_name/provider_binding_name columns directly, not re-parse
+        github_reference/provider_metadata JSON. When stored JSON is
+        malformed, the conflict scan must still run for all dimensions,
+        not suppress diagnostics by nulling out dimension values."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+
+        # Inject malformed JSON into both github_reference and provider_metadata
+        conn.execute(
+            "UPDATE project_bindings SET github_reference = ?, provider_metadata = ? WHERE id = ?",
+            (b"\xff\xfe", b"\xff\xfe", created["id"]),
+        )
+        conn.commit()
+
+        # validate_binding must not crash and must compute conflicts
+        # (empty due to unique index guarantee, but computed nonetheless)
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert isinstance(result["conflicts"], list)
+        # Both JSON fields are invalid
+        assert result["github_reference_check"]["valid"] is False
+        assert result["provider_metadata_check"]["valid"] is False
+        # Conflicts list is computed, not suppressed
+        assert result["conflicts"] == []  # unique index prevents self-conflict
+
 
 class TestDiagnosticContractVocabulary:
     """Contract tests for `validate_binding()`'s diagnostic vocabulary

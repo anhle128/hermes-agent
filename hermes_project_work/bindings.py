@@ -1214,23 +1214,21 @@ def validate_binding(
 def _compute_conflicts(
     conn: sqlite3.Connection, row: sqlite3.Row
 ) -> list[dict]:
-    """Compute the conflict list for an existing binding, excluding itself."""
-    gh_raw = row["github_reference"]
-    gh_parsed, gh_error = _parse_json_field(gh_raw)
-    gh_key = None
-    if gh_parsed is not None and gh_error is None:
-        try:
-            gh_key = _github_reference_key(gh_parsed)
-        except (KeyError, TypeError, AttributeError):
-            gh_key = None
+    """Compute the conflict list for an existing binding, excluding itself.
 
-    pm_raw = row["provider_metadata"]
-    pm_parsed, pm_error = _parse_json_field(pm_raw)
+    Uses the stored denormalized columns (``github_reference_key``,
+    ``provider_name``, ``provider_binding_name``) directly rather than
+    re-parsing JSON fields.  This ensures conflict diagnostics are not
+    suppressed when stored JSON is malformed — the conflict check for
+    provider_identity only needs ``provider_name``/``provider_binding_name``,
+    not the ``provider_metadata`` content; and the github_reference conflict
+    check only needs the stored ``github_reference_key``, not the full
+    ``github_reference`` JSON.
+    """
+    gh_key = row["github_reference_key"]
+
     pn = row["provider_name"]
     pbn = row["provider_binding_name"]
-    if pm_error is not None:
-        pn = None
-        pbn = None
 
     violations = _check_uniqueness_dimensions(
         conn,

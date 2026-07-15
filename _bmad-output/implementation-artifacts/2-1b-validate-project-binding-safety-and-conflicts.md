@@ -86,7 +86,7 @@ so that automation fails closed for unsafe or ambiguous project context.
 - [x] [Review][Patch] `git diff --check` fails on trailing whitespace [_bmad-output/test-artifacts/test-design-epic-2.1b.md:34]
 - [x] [Review][Patch] `git diff --check` still fails on trailing whitespace [_bmad-output/test-artifacts/test-design-epic-2.1b.md:35]
 - [x] [Review][Patch] Provider metadata invalid UTF-8 regression coverage is missing [tests/project_work/test_bindings.py:3673]
-- [ ] [Review][Patch] `validate_binding()` suppresses conflict diagnostics when stored JSON is malformed [hermes_project_work/bindings.py:1218]
+- [x] [Review][Patch] `validate_binding()` suppresses conflict diagnostics when stored JSON is malformed [hermes_project_work/bindings.py:1218]
 
 ## Dev Notes
 
@@ -180,7 +180,7 @@ Qoder (Claude)
 
 ### Debug Log References
 
-All 209 tests in `tests/project_work/test_bindings.py` pass (75 new Story 2.1b tests + 134 existing Story 2.1a tests). Fix pass 1 added 3 tests for the review findings. Fix pass 2 added 1 test for provider_metadata UTF-8 coverage.
+All 210 tests in `tests/project_work/test_bindings.py` pass (76 new Story 2.1b tests + 134 existing Story 2.1a tests). Fix pass 1 added 3 tests for the review findings. Fix pass 2 added 1 test for provider_metadata UTF-8 coverage. Fix pass 3 added 1 test for conflict scan using stored columns.
 
 ### Completion Notes List
 
@@ -195,5 +195,5 @@ All 209 tests in `tests/project_work/test_bindings.py` pass (75 new Story 2.1b t
 
 ### File List
 
-- `hermes_project_work/bindings.py` — added validation functions, conflict detection, and public entrypoints
-- `tests/project_work/test_bindings.py` — 72 new tests (pre-existing red-phase scaffolds, now passing)
+- `hermes_project_work/bindings.py` — added validation functions, conflict detection, and public entrypoints; fix pass 3 updated `_compute_conflicts()` to use stored columns directly
+- `tests/project_work/test_bindings.py` — 76 new tests (pre-existing red-phase scaffolds, now passing; fix passes added 5 regression tests)
