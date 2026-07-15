@@ -81,9 +81,9 @@ so that automation fails closed for unsafe or ambiguous project context.
 
 ### Review Findings
 
-- [ ] [Review][Patch] `validate_binding()` raises on invalid UTF-8 JSON bytes [hermes_project_work/bindings.py:1140]
-- [ ] [Review][Patch] `preview_binding_conflicts()` accepts a blank profile unlike `create_binding()` [hermes_project_work/bindings.py:1087]
-- [ ] [Review][Patch] `git diff --check` fails on trailing whitespace [_bmad-output/test-artifacts/test-design-epic-2.1b.md:34]
+- [x] [Review][Patch] `validate_binding()` raises on invalid UTF-8 JSON bytes [hermes_project_work/bindings.py:1140]
+- [x] [Review][Patch] `preview_binding_conflicts()` accepts a blank profile unlike `create_binding()` [hermes_project_work/bindings.py:1087]
+- [x] [Review][Patch] `git diff --check` fails on trailing whitespace [_bmad-output/test-artifacts/test-design-epic-2.1b.md:34]
 
 ## Dev Notes
 
@@ -177,7 +177,7 @@ Qoder (Claude)
 
 ### Debug Log References
 
-All 205 tests in `tests/project_work/test_bindings.py` pass (71 new Story 2.1b tests + 134 existing Story 2.1a tests).
+All 208 tests in `tests/project_work/test_bindings.py` pass (74 new Story 2.1b tests + 134 existing Story 2.1a tests). Fix pass 1 added 3 tests for the review findings.
 
 ### Completion Notes List
 

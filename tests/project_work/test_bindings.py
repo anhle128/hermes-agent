@@ -3267,6 +3267,26 @@ class TestPreviewBindingConflicts:
         )
         assert row_count(conn) == before
 
+    def test_blank_profile_is_rejected(self, conn, tmp_path):
+        """preview_binding_conflicts() must reject blank profile strings
+        the same way create_binding() does — _require_nonblank_str after
+        _resolve_profile."""
+        with pytest.raises(ValueError, match="blank"):
+            pb.preview_binding_conflicts(
+                conn,
+                profile="   ",
+                bound_project_cwd=str(tmp_path),
+            )
+
+    def test_empty_string_profile_is_rejected(self, conn, tmp_path):
+        """An explicitly empty profile string is also rejected."""
+        with pytest.raises(ValueError, match="blank"):
+            pb.preview_binding_conflicts(
+                conn,
+                profile="",
+                bound_project_cwd=str(tmp_path),
+            )
+
 
 class TestValidateBinding:
     """Integration tests for `validate_binding()` (Story 2.1b, Task 5) —
@@ -3649,6 +3669,24 @@ class TestValidateBinding:
         assert conflict_diag["recovery_option"] == "update_project_binding"
         assert result["validation_state"] == "conflicting"
         assert result["safe"] is False
+
+    def test_invalid_utf8_bytes_in_github_reference_returns_diagnostic(self, conn, tmp_path):
+        """_parse_json_field must catch UnicodeDecodeError when stored JSON
+        contains invalid UTF-8 bytes, returning a structured diagnostic
+        instead of raising."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        conn.execute(
+            "UPDATE project_bindings SET github_reference = ? WHERE id = ?",
+            (b"\xff\xfe", created["id"]),
+        )
+        conn.commit()
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_github_reference"
+        assert result["github_reference_check"]["valid"] is False
+        assert result["github_reference_check"]["reason"] is not None
+        assert any(d["category"] == "invalid_github_reference" for d in result["diagnostics"])
 
 
 class TestDiagnosticContractVocabulary:

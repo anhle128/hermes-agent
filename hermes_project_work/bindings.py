@@ -1085,6 +1085,7 @@ def preview_binding_conflicts(
     uniqueness dimension the candidate collides on.
     """
     resolved_profile = _resolve_profile(profile)
+    _require_nonblank_str(resolved_profile, "profile")
     _require_nonblank_str(bound_project_cwd, "bound_project_cwd")
 
     gh_ref = _validate_github_reference(github_reference)
@@ -1139,7 +1140,7 @@ def _parse_json_field(
         return None, None
     try:
         parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError) as exc:
+    except (json.JSONDecodeError, TypeError, UnicodeDecodeError) as exc:
         return None, str(exc)
     if not isinstance(parsed, dict):
         return None, (
