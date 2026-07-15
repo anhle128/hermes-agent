@@ -1867,6 +1867,47 @@ class TestSchemaNotNullAndTypeVerification:
         finally:
             conn.close()
 
+    def test_verify_complete_schema_accepts_lowercase_sqlite_type_names(self, db_path):
+        """SQLite declared types are case-insensitive, so lower-case type
+        names should satisfy the schema contract just like upper-case names."""
+        if not hasattr(pb, "_verify_complete_schema"):
+            pytest.skip("pb._verify_complete_schema not present")
+
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+
+            conn.execute("DROP TABLE project_bindings")
+            conn.executescript("""
+                CREATE TABLE project_bindings (
+                    id                      text PRIMARY KEY,
+                    profile                 text NOT NULL,
+                    display_name            text NOT NULL,
+                    bound_project_cwd       text NOT NULL,
+                    github_reference        text,
+                    github_reference_key    text,
+                    bmad_skill_dir          text,
+                    provider_name           text,
+                    provider_binding_name   text,
+                    provider_metadata       text,
+                    created_at              integer NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_cwd
+                    ON project_bindings(profile, bound_project_cwd);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_github_key
+                    ON project_bindings(profile, github_reference_key)
+                    WHERE github_reference_key IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_bmad_dir
+                    ON project_bindings(profile, bmad_skill_dir)
+                    WHERE bmad_skill_dir IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_provider
+                    ON project_bindings(profile, provider_name, provider_binding_name)
+                    WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL;
+            """)
+            assert pb._verify_complete_schema(conn) is True
+        finally:
+            conn.close()
+
     def test_additive_schema_repair_preserves_all_persisted_data(self, db_path):
         """Finding 49: additive schema repair must NOT drop the table or
         delete persisted rows.  When the table exists but has missing
@@ -2238,6 +2279,45 @@ class TestAdditiveRepairFixesBrokenIndexes:
             assert row_count(conn2) == 1
         finally:
             conn2.close()
+
+    def test_index_repair_rolls_back_if_recreate_fails(self, db_path):
+        """Index repair must not leave previously-valid indexes dropped when
+        one recreate statement fails midway through the repair loop."""
+        conn = pb.connect(db_path=db_path)
+        try:
+            assert pb._verify_complete_schema(conn) is True
+            before = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(project_bindings)").fetchall()
+            }
+            assert pb._EXPECTED_UNIQUE_INDEXES.issubset(before)
+
+            class FailingIndexRepairConnection:
+                def __init__(self, wrapped):
+                    self._wrapped = wrapped
+
+                def execute(self, sql, *args):
+                    normalized = " ".join(sql.split())
+                    if normalized.startswith(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_pb_profile_github_key"
+                    ):
+                        raise sqlite3.OperationalError("simulated index recreate failure")
+                    return self._wrapped.execute(sql, *args)
+
+                def executescript(self, sql):
+                    return self._wrapped.executescript(sql)
+
+            with pytest.raises(sqlite3.OperationalError, match="simulated"):
+                pb._repair_schema_additive(FailingIndexRepairConnection(conn))
+
+            after = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(project_bindings)").fetchall()
+            }
+            assert after == before
+            assert pb._verify_complete_schema(conn) is True
+        finally:
+            conn.close()
 
 
 @requires_bindings_module

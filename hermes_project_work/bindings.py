@@ -331,7 +331,8 @@ def _verify_complete_schema(conn: sqlite3.Connection) -> bool:
     col_info = {row["name"]: row for row in rows}
     for col_name in _EXPECTED_COLUMNS:
         expected_type = _EXPECTED_COLUMN_TYPES.get(col_name)
-        if expected_type and not col_info[col_name]["type"].startswith(expected_type):
+        actual_type = (col_info[col_name]["type"] or "").upper()
+        if expected_type and not actual_type.startswith(expected_type.upper()):
             return False
     for col_name in _EXPECTED_NOT_NULL_COLUMNS:
         if not col_info[col_name]["notnull"]:
@@ -410,9 +411,10 @@ def _repair_schema_additive(conn: sqlite3.Connection) -> None:
             " WHERE provider_name IS NOT NULL AND provider_binding_name IS NOT NULL"
         ),
     }
-    for index_name, ddl in _INDEX_DDL_STATEMENTS.items():
-        conn.execute(f"DROP INDEX IF EXISTS {index_name}")
-        conn.execute(ddl)
+    with write_txn(conn):
+        for index_name, ddl in _INDEX_DDL_STATEMENTS.items():
+            conn.execute(f"DROP INDEX IF EXISTS {index_name}")
+            conn.execute(ddl)
 
 
 def _init_cached_connection(conn: sqlite3.Connection) -> None:

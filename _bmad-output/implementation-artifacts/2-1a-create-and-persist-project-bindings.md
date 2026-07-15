@@ -1,6 +1,6 @@
 # Story 2.1a: Create And Persist Project Bindings
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -138,6 +138,8 @@ Qoder (AI coding agent)
 - Review patch focused run: `bash scripts/run_tests.sh tests/agent/test_anthropic_keychain.py tests/gateway/test_shutdown_forensics.py tests/cli/test_cli_browser_connect.py tests/test_tui_gateway_server.py tests/tools/test_base_environment.py -q` on 2026-07-14 - 5 files, 406 tests passed.
 - Targeted blocker suite: `bash scripts/run_tests.sh tests/agent/test_anthropic_adapter.py tests/agent/test_anthropic_keychain.py tests/agent/test_anthropic_output_field_leak.py tests/acp tests/cli/test_cli_browser_connect.py tests/gateway/test_background_command.py tests/gateway/test_shutdown_forensics.py tests/gateway/test_wecom_callback.py tests/hermes_cli/test_gateway_service.py tests/hermes_cli/test_gateway_wsl.py tests/hermes_cli/test_ignore_user_config_flags.py tests/hermes_cli/test_service_manager.py tests/hermes_cli/test_signal_handler_kanban_worker.py tests/test_live_system_guard_self_test.py tests/tools/test_base_environment.py tests/tools/test_file_tools.py tests/test_tui_gateway_server.py tests/project_work/test_bindings.py -q` on 2026-07-14 - 31 files, 1,418 tests passed, 0 failed.
 - Full regression run: `bash scripts/run_tests.sh` on 2026-07-14 - 1,887 files, 39,307 tests passed, 0 failed.
+- Code-review patch run: `bash scripts/run_tests.sh tests/project_work/test_bindings.py -q` on 2026-07-16 - 134/134 passed.
+- Code-review lint run: `.venv/bin/python -m ruff check hermes_project_work/bindings.py tests/project_work/test_bindings.py` on 2026-07-16 - passed.
 
 ### Completion Notes List
 
@@ -257,6 +259,7 @@ Qoder (AI coding agent)
 - **Test results: 132/132 passing** after seventeenth fix pass addressing 1 round-17 review finding.
 - Dev-story completion gate passed on 2026-07-14. The required full regression run is green, so Story 2.1a is promoted to `review`.
 - Regression cleanup fixed reproduced full-suite blockers outside the story package while preserving Story 2.1a's implementation scope: schema, create/read, persistence, and uniqueness only.
+- Code-review patch findings were applied on 2026-07-16: index repair now rebuilds indexes inside an explicit transaction, and schema type verification treats SQLite declared types case-insensitively.
 
 ### File List
 

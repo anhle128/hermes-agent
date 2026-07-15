@@ -63,6 +63,11 @@ context:
 - Given Story 2.1a focused validation, when `bash scripts/run_tests.sh tests/project_work/test_bindings.py -q` and ruff run, then both still pass.
 - Given the full repository regression command is run, when it completes, then any remaining failures are recorded with exact failing files and are not attributed to Story 2.1a without evidence.
 
+### Review Findings
+
+- [x] [Review][Patch] Schema index repair can leave uniqueness constraints missing after a failed recreate [../../hermes_project_work/bindings.py:413]
+- [x] [Review][Patch] Schema type verification rejects valid lowercase SQLite type declarations [../../hermes_project_work/bindings.py:334]
+
 ## Spec Change Log
 
 ## Design Notes
