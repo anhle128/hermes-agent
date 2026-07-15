@@ -44,6 +44,12 @@ implementer; adjust these tests if dev-story lands a different shape):
 Traceability: each test/parametrize case is tagged with its
 ``_bmad-output/test-artifacts/test-design-epic-2.1a.md`` scenario ID in a
 comment or docstring for the mandatory ATDD mapping.
+
+Story 2.1b (validate Project Binding safety and conflicts) scaffolds live
+further down in this same file, in the section headed "Story 2.1b:
+Validate Project Binding Safety And Conflicts" — see that section's own
+docstring for its red-phase status and
+``_bmad-output/test-artifacts/test-design-epic-2.1b.md`` traceability.
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ import json
 import multiprocessing as mp
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -2697,6 +2704,1102 @@ class TestNullByteRejectionInStringFields:
                 ),
             )
         assert row_count(conn) == 0
+
+
+# =============================================================================
+# Story 2.1b: Validate Project Binding Safety And Conflicts
+#
+# TDD RED PHASE: hermes_project_work.bindings does not yet define
+# `_check_cwd_safety`, `_check_bmad_reference_safety`,
+# `_check_github_reference_safety`, `_check_provider_metadata_safety`,
+# `_CONFLICT_CATEGORY_BY_DIMENSION`, `preview_binding_conflicts()`, or
+# `validate_binding()` (Story 2.1b, Tasks 1-5). Unlike the Story 2.1a suite
+# above, `hermes_project_work.bindings` itself already imports cleanly
+# (2.1a is done) — every test below is an EXECUTABLE red test, not a
+# skip-gated scaffold: each calls the not-yet-implemented symbol directly
+# and is expected to fail with AttributeError until its Task lands. There is
+# no module-level skip guard here because the missing seam is "attribute
+# missing from an existing module", not "module missing" — activate a test
+# class by implementing the Task it is commented against.
+#
+# The exception is `TestScopeRegressionGuards` and the
+# `test_no_*`/`test_conflict_categories_map_exact_dimension_strings`-style
+# static checks: those assert the CURRENT absence of scope-creep surface
+# and must stay green both before and after implementation — they are
+# regression guards, not red tests.
+#
+# Traceability: each test is tagged with its
+# `_bmad-output/test-artifacts/test-design-epic-2.1b.md` scenario ID.
+# =============================================================================
+
+
+def _make_git_repo(tmp_path: Path, name: str = "repo") -> Path:
+    repo = tmp_path / name
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / ".git").mkdir(exist_ok=True)
+    return repo
+
+
+def _make_plain_dir(tmp_path: Path, name: str) -> Path:
+    d = tmp_path / name
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def real_binding_kwargs(
+    tmp_path: Path,
+    *,
+    repo_name: str = "repo",
+    bmad_name: str = "_bmad",
+    **overrides: Any,
+) -> dict:
+    """Like ``valid_kwargs()`` but with a real, tmp_path-backed
+    ``bound_project_cwd`` (containing ``.git``) and ``bmad_skill_dir``, for
+    ``validate_binding()``/``preview_binding_conflicts()`` tests that
+    exercise real filesystem checks rather than 2.1a's fake ``/tmp`` paths.
+    Override any field (including ``bound_project_cwd``/``bmad_skill_dir``
+    themselves, to point at a path that was never created) via kwargs.
+    """
+    repo = _make_git_repo(tmp_path, repo_name)
+    bmad_dir = _make_plain_dir(tmp_path, bmad_name)
+    base = dict(
+        profile="default",
+        display_name="Hermes Agent",
+        bound_project_cwd=str(repo),
+        github_reference={"owner": "NousResearch", "repo": "hermes-agent"},
+        bmad_skill_dir=str(bmad_dir),
+        provider_name="archon",
+        provider_binding_name="workflow-engine-primary",
+        provider_metadata={"bindingId": "wpb_archon_workflow_engine_primary"},
+    )
+    base.update(overrides)
+    return base
+
+
+def set_raw_column(conn: sqlite3.Connection, binding_id: str, column: str, value) -> None:
+    """Bypass ``create_binding()``'s validation to inject malformed
+    persisted data directly, simulating a row written by some future path
+    that doesn't reuse 2.1a's fail-fast validators (per this story's Dev
+    Notes on non-raising vs. raising validation)."""
+    conn.execute(
+        f"UPDATE project_bindings SET {column} = ? WHERE id = ?",
+        (value, binding_id),
+    )
+    conn.commit()
+
+
+class TestCwdSafetyValidation:
+    """Unit tests for `_check_cwd_safety()` (Story 2.1b, Task 1)."""
+
+    def test_missing_cwd_reports_does_not_exist(self, tmp_path):
+        """2.1B-UNIT-001 (P0, AC1, R-001)."""
+        missing = tmp_path / "does-not-exist"
+        assert pb._check_cwd_safety(str(missing)) == {
+            "valid": False,
+            "reason": "cwd_does_not_exist",
+        }
+
+    def test_file_not_directory_reports_not_a_directory(self, tmp_path):
+        """2.1B-UNIT-002 (P0, AC1, R-001)."""
+        file_path = tmp_path / "a-file"
+        file_path.write_text("x", encoding="utf-8")
+        assert pb._check_cwd_safety(str(file_path)) == {
+            "valid": False,
+            "reason": "cwd_is_not_a_directory",
+        }
+
+    def test_filesystem_root_reports_is_filesystem_root(self):
+        """2.1B-UNIT-003 (P0, AC1, R-001/R-002): tmp_path fixtures cannot
+        naturally produce a real filesystem root, so this exercises the
+        real POSIX root directly, per Task 6's own guidance."""
+        assert pb._check_cwd_safety(os.path.abspath(os.sep)) == {
+            "valid": False,
+            "reason": "cwd_is_filesystem_root",
+        }
+
+    def test_exact_hermes_home_reports_within_hermes_home(self, tmp_path, monkeypatch):
+        """2.1B-UNIT-004 (P0, AC1, R-001/R-002): exact Hermes-home match."""
+        fake_home = tmp_path / "hermes-home"
+        fake_home.mkdir()
+        monkeypatch.setattr(pb, "get_hermes_home", lambda: fake_home)
+        assert pb._check_cwd_safety(str(fake_home)) == {
+            "valid": False,
+            "reason": "cwd_is_within_hermes_home",
+        }
+
+    def test_nested_hermes_home_reports_within_hermes_home(self, tmp_path, monkeypatch):
+        """2.1B-UNIT-004 (P0, AC1, R-001/R-002): nested-under Hermes home."""
+        fake_home = tmp_path / "hermes-home"
+        nested = fake_home / "profiles" / "default"
+        nested.mkdir(parents=True)
+        monkeypatch.setattr(pb, "get_hermes_home", lambda: fake_home)
+        assert pb._check_cwd_safety(str(nested)) == {
+            "valid": False,
+            "reason": "cwd_is_within_hermes_home",
+        }
+
+    def test_directory_without_git_reports_not_a_git_repository(self, tmp_path):
+        """2.1B-UNIT-005 (P0, AC3, R-001/R-003)."""
+        plain_dir = _make_plain_dir(tmp_path, "no-git-here")
+        assert pb._check_cwd_safety(str(plain_dir)) == {
+            "valid": False,
+            "reason": "cwd_is_not_a_git_repository",
+        }
+
+    def test_directory_with_git_is_valid(self, tmp_path):
+        """2.1B-UNIT-006 (P1, AC6, R-001)."""
+        repo = _make_git_repo(tmp_path)
+        assert pb._check_cwd_safety(str(repo)) == {"valid": True, "reason": None}
+
+    def test_existence_check_gates_hermes_home_check(self, tmp_path, monkeypatch):
+        """Reviewer concern (R-001/R-002): a check on a nonexistent path is
+        meaningless, so existence must be checked before the Hermes-home
+        denylist — even for a path that WOULD be nested under Hermes home
+        if it existed."""
+        fake_home = tmp_path / "hermes-home"
+        fake_home.mkdir()
+        monkeypatch.setattr(pb, "get_hermes_home", lambda: fake_home)
+        missing_nested = fake_home / "missing"
+        assert pb._check_cwd_safety(str(missing_nested)) == {
+            "valid": False,
+            "reason": "cwd_does_not_exist",
+        }
+
+    def test_directory_check_gates_git_check(self, tmp_path):
+        """Reviewer concern (R-001/R-003): a file (not a directory) must be
+        flagged as not-a-directory, never misreported as not-a-git-repo."""
+        file_path = tmp_path / "a-file"
+        file_path.write_text("x", encoding="utf-8")
+        assert pb._check_cwd_safety(str(file_path))["reason"] == "cwd_is_not_a_directory"
+
+    def test_hermes_home_check_gates_git_check(self, tmp_path, monkeypatch):
+        """Reviewer concern (R-001/R-002/R-003): a directory nested under
+        Hermes home with no `.git` subdirectory must report the Hermes-home
+        denylist reason, not the git-repository reason — proving check
+        order 4 runs before check order 5."""
+        fake_home = tmp_path / "hermes-home"
+        nested = fake_home / "nested"
+        nested.mkdir(parents=True)
+        monkeypatch.setattr(pb, "get_hermes_home", lambda: fake_home)
+        assert pb._check_cwd_safety(str(nested)) == {
+            "valid": False,
+            "reason": "cwd_is_within_hermes_home",
+        }
+
+
+class TestBmadReferenceSafety:
+    """Unit tests for `_check_bmad_reference_safety()` (Story 2.1b, Task 2)."""
+
+    def test_none_input_returns_none(self):
+        """2.1B-UNIT-007 (P1, AC4, R-004)."""
+        assert pb._check_bmad_reference_safety(None) is None
+
+    def test_missing_directory_reports_invalid(self, tmp_path):
+        """2.1B-UNIT-008 (P1, AC4, R-004)."""
+        missing = tmp_path / "no-such-bmad-dir"
+        assert pb._check_bmad_reference_safety(str(missing)) == {
+            "valid": False,
+            "reason": "bmad_skill_dir_does_not_exist",
+        }
+
+    def test_file_not_directory_reports_invalid(self, tmp_path):
+        """2.1B-UNIT-009 (P1, AC4, R-004)."""
+        file_path = tmp_path / "bmad-as-file"
+        file_path.write_text("x", encoding="utf-8")
+        assert pb._check_bmad_reference_safety(str(file_path)) == {
+            "valid": False,
+            "reason": "bmad_skill_dir_is_not_a_directory",
+        }
+
+    def test_existing_directory_returns_valid(self, tmp_path):
+        """2.1B-UNIT-010 (P1, AC4/AC6, R-004)."""
+        bmad_dir = _make_plain_dir(tmp_path, "_bmad")
+        assert pb._check_bmad_reference_safety(str(bmad_dir)) == {
+            "valid": True,
+            "reason": None,
+        }
+
+
+class TestGithubAndProviderMetadataSafety:
+    """Unit tests for `_check_github_reference_safety()` and
+    `_check_provider_metadata_safety()` (Story 2.1b, Task 3): non-raising
+    wrappers around 2.1a's fail-fast `_validate_github_reference()` /
+    `_validate_provider_identity()`."""
+
+    def test_github_reference_none_returns_valid(self):
+        """2.1B-UNIT-011 (P1, AC5, R-011)."""
+        assert pb._check_github_reference_safety(None) == {"valid": True, "reason": None}
+
+    def test_github_reference_valid_dict_returns_valid(self):
+        """2.1B-UNIT-011 (P1, AC5, R-011)."""
+        ref = {"owner": "NousResearch", "repo": "hermes-agent"}
+        assert pb._check_github_reference_safety(ref) == {"valid": True, "reason": None}
+
+    @pytest.mark.parametrize(
+        "malformed",
+        [
+            {"owner": "NousResearch"},
+            "NousResearch/hermes-agent",
+            {"owner": "", "repo": "hermes-agent"},
+        ],
+        ids=["missing-repo", "bare-string", "blank-owner"],
+    )
+    def test_github_reference_converts_raised_errors_to_invalid(self, malformed):
+        """2.1B-UNIT-012 (P1, AC5, R-005/R-011): shapes that make
+        `_validate_github_reference()` raise must come back as a
+        structured `{"valid": False, "reason": <str>}`, never an escaped
+        exception."""
+        result = pb._check_github_reference_safety(malformed)
+        assert result["valid"] is False
+        assert isinstance(result["reason"], str) and result["reason"]
+
+    def test_github_reference_safety_wraps_not_reimplements_validator(self, monkeypatch):
+        """R-011 (P2 reviewer concern, tracked here for completeness):
+        `_check_github_reference_safety` must call the existing
+        `_validate_github_reference()`, not duplicate its logic — proven
+        with a call-counting spy."""
+        calls = []
+        real = pb._validate_github_reference
+
+        def _spy(ref):
+            calls.append(ref)
+            return real(ref)
+
+        monkeypatch.setattr(pb, "_validate_github_reference", _spy)
+        ref = {"owner": "NousResearch", "repo": "hermes-agent"}
+        assert pb._check_github_reference_safety(ref) == {"valid": True, "reason": None}
+        assert calls == [ref]
+
+    def test_provider_metadata_safety_absent_identity_returns_valid(self):
+        """2.1B-UNIT-013 (P1, AC5, R-011)."""
+        assert pb._check_provider_metadata_safety(None, None, None) == {
+            "valid": True,
+            "reason": None,
+        }
+
+    def test_provider_metadata_safety_complete_identity_returns_valid(self):
+        """2.1B-UNIT-013 (P1, AC5, R-011)."""
+        result = pb._check_provider_metadata_safety(
+            "archon", "workflow-engine-primary", {"bindingId": "wpb_x"}
+        )
+        assert result == {"valid": True, "reason": None}
+
+    @pytest.mark.parametrize(
+        "provider_name,provider_binding_name,provider_metadata",
+        [
+            ("archon", None, None),
+            (None, "workflow-engine-primary", None),
+            (None, None, {"bindingId": "wpb_x"}),
+        ],
+        ids=[
+            "one-sided-name-only",
+            "one-sided-binding-name-only",
+            "metadata-without-identity",
+        ],
+    )
+    def test_provider_metadata_safety_converts_raised_errors_to_invalid(
+        self, provider_name, provider_binding_name, provider_metadata
+    ):
+        """2.1B-UNIT-014 (P1, AC5, R-005/R-011): one-sided Controller
+        Identity and metadata-without-identity must come back as a
+        structured invalid result, never an escaped exception."""
+        result = pb._check_provider_metadata_safety(
+            provider_name, provider_binding_name, provider_metadata
+        )
+        assert result["valid"] is False
+        assert isinstance(result["reason"], str) and result["reason"]
+
+    def test_provider_metadata_safety_non_dict_metadata_returns_invalid(self):
+        """2.1B-UNIT-014 (P1, AC5, R-005/R-011): non-dict provider_metadata
+        must also be converted, not just identity-shape failures."""
+        result = pb._check_provider_metadata_safety(
+            "archon", "workflow-engine-primary", ["not", "a", "dict"]
+        )
+        assert result["valid"] is False
+        assert isinstance(result["reason"], str) and result["reason"]
+
+    def test_provider_metadata_safety_wraps_not_reimplements_validator(self, monkeypatch):
+        """R-011 (P2 reviewer concern): `_check_provider_metadata_safety`
+        must call the existing `_validate_provider_identity()`, not
+        duplicate it."""
+        calls = []
+        real = pb._validate_provider_identity
+
+        def _spy(provider_name, provider_binding_name, provider_metadata=None):
+            calls.append((provider_name, provider_binding_name, provider_metadata))
+            return real(provider_name, provider_binding_name, provider_metadata)
+
+        monkeypatch.setattr(pb, "_validate_provider_identity", _spy)
+        result = pb._check_provider_metadata_safety(
+            "archon", "engine", {"bindingId": "wpb_x"}
+        )
+        assert result == {"valid": True, "reason": None}
+        assert calls == [("archon", "engine", {"bindingId": "wpb_x"})]
+
+
+class TestPreviewBindingConflicts:
+    """Integration tests for `preview_binding_conflicts()` (Story 2.1b,
+    Task 4). Read-only: must never create a row. Real SQLite + tmp_path
+    filesystem, no mocks."""
+
+    def test_cwd_conflict_returns_category_and_existing_id(self, conn, tmp_path):
+        """2.1B-INT-008 (P0, AC2/AC7, R-006)."""
+        existing = pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+        assert existing["conflict"] is False
+        before = row_count(conn)
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "existing"),
+            github_reference={"owner": "Other", "repo": "other-repo"},
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+        )
+        assert result == [{"category": "cwd_conflict", "conflicting_binding_id": existing["id"]}]
+        assert row_count(conn) == before
+
+    def test_github_conflict_returns_category_and_existing_id(self, conn, tmp_path):
+        """2.1B-INT-009 (P0, AC2/AC7, R-006/R-014)."""
+        existing = pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+        before = row_count(conn)
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "candidate"),
+            github_reference={"owner": "nousresearch", "repo": "HERMES-AGENT"},
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+        )
+        assert result == [
+            {"category": "github_reference_conflict", "conflicting_binding_id": existing["id"]}
+        ]
+        assert row_count(conn) == before
+
+    def test_bmad_conflict_returns_category_and_existing_id(self, conn, tmp_path):
+        """2.1B-INT-010 (P0, AC2/AC7, R-006)."""
+        existing = pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+        before = row_count(conn)
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "candidate2"),
+            github_reference=None,
+            bmad_skill_dir=str(tmp_path / "_bmad"),
+            provider_name=None,
+            provider_binding_name=None,
+        )
+        assert result == [
+            {"category": "bmad_mount_conflict", "conflicting_binding_id": existing["id"]}
+        ]
+        assert row_count(conn) == before
+
+    def test_provider_conflict_returns_category_and_existing_id(self, conn, tmp_path):
+        """2.1B-INT-011 (P0, AC2/AC7, R-006)."""
+        existing = pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+        before = row_count(conn)
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "candidate3"),
+            github_reference=None,
+            bmad_skill_dir=None,
+            provider_name="archon",
+            provider_binding_name="workflow-engine-primary",
+        )
+        assert result == [
+            {"category": "provider_identity_conflict", "conflicting_binding_id": existing["id"]}
+        ]
+        assert row_count(conn) == before
+
+    def test_all_four_dimensions_conflict_reports_all_categories(self, conn, tmp_path):
+        """2.1B-INT-012 (P0, AC2/AC7, R-006)."""
+        existing = pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+        before = row_count(conn)
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "existing"),
+            github_reference={"owner": "NousResearch", "repo": "hermes-agent"},
+            bmad_skill_dir=str(tmp_path / "_bmad"),
+            provider_name="archon",
+            provider_binding_name="workflow-engine-primary",
+        )
+        assert {c["category"] for c in result} == {
+            "cwd_conflict",
+            "github_reference_conflict",
+            "bmad_mount_conflict",
+            "provider_identity_conflict",
+        }
+        assert all(c["conflicting_binding_id"] == existing["id"] for c in result)
+        assert row_count(conn) == before
+
+    def test_non_conflicting_candidate_returns_empty_list(self, conn, tmp_path):
+        """2.1B-INT-021 (P1, AC7, R-006)."""
+        pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+        before = row_count(conn)
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "unrelated"),
+            github_reference={"owner": "Someone", "repo": "else"},
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+        )
+        assert result == []
+        assert row_count(conn) == before
+
+    def test_preview_normalizes_candidate_like_create_binding(self, conn, tmp_path):
+        """2.1B-INT-022 (P1, AC7, R-014): a trailing-slash cwd and a
+        case/key-order-varied GitHub reference must canonicalize exactly
+        like `create_binding()` does, and still be recognized as
+        conflicts."""
+        pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path,
+                repo_name="existing",
+                bmad_skill_dir=None,
+                provider_name=None,
+                provider_binding_name=None,
+                provider_metadata=None,
+            ),
+        )
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "existing") + "/",
+            github_reference={"repo": "HERMES-AGENT", "owner": "nousresearch"},
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+        )
+        categories = {c["category"] for c in result}
+        assert "cwd_conflict" in categories
+        assert "github_reference_conflict" in categories
+
+    def test_invalid_provider_candidate_raises_before_sql(self, conn, tmp_path):
+        """2.1B-INT-023 (P1, AC7, R-010/R-014): a one-sided provider
+        identity candidate must raise the same way `create_binding()`
+        does, before any SQL runs — preview reuses `create_binding()`'s
+        pre-mutation validators rather than silently passing malformed
+        candidates through."""
+        before = row_count(conn)
+        with pytest.raises(ValueError):
+            pb.preview_binding_conflicts(
+                conn,
+                profile="default",
+                bound_project_cwd=str(tmp_path / "candidate"),
+                provider_name="archon",
+                provider_binding_name=None,
+            )
+        assert row_count(conn) == before
+
+    def test_profile_none_resolves_active_profile(self, conn, tmp_path, monkeypatch):
+        """2.1B-INT-024 (P1, AC2/AC7, R-014): `profile=None` resolves
+        through the same `_resolve_profile()`/`get_active_profile_name()`
+        path `create_binding()` uses, and only reports same-profile
+        conflicts."""
+        import hermes_cli.profiles as profiles_mod
+
+        monkeypatch.setattr(profiles_mod, "get_active_profile_name", lambda: "default")
+        existing = pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile=None,
+            bound_project_cwd=str(tmp_path / "existing"),
+            github_reference=None,
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+        )
+        assert result == [{"category": "cwd_conflict", "conflicting_binding_id": existing["id"]}]
+
+    def test_same_values_different_profile_no_conflict(self, conn, tmp_path):
+        """2.1B-INT-025 (P1, AC2/AC7, R-014): uniqueness (and conflict
+        detection) is profile-scoped, not global."""
+        pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, repo_name="existing", profile="alpha")
+        )
+
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="beta",
+            bound_project_cwd=str(tmp_path / "existing"),
+            github_reference={"owner": "NousResearch", "repo": "hermes-agent"},
+            bmad_skill_dir=str(tmp_path / "_bmad"),
+            provider_name="archon",
+            provider_binding_name="workflow-engine-primary",
+        )
+        assert result == []
+
+    def test_repeated_preview_is_idempotent_and_creates_no_row(self, conn, tmp_path):
+        """2.1B-INT-026 (P1, AC7, R-006): calling preview twice with the
+        same candidate returns the same conflicts and never creates a
+        row."""
+        existing = pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="existing"))
+        before = row_count(conn)
+
+        candidate = dict(
+            profile="default",
+            bound_project_cwd=str(tmp_path / "existing"),
+            github_reference=None,
+            bmad_skill_dir=None,
+            provider_name=None,
+            provider_binding_name=None,
+        )
+        first = pb.preview_binding_conflicts(conn, **candidate)
+        second = pb.preview_binding_conflicts(conn, **candidate)
+        assert (
+            first
+            == second
+            == [{"category": "cwd_conflict", "conflicting_binding_id": existing["id"]}]
+        )
+        assert row_count(conn) == before
+
+
+class TestValidateBinding:
+    """Integration tests for `validate_binding()` (Story 2.1b, Task 5) —
+    the unified re-validation entrypoint. Real SQLite + tmp_path
+    filesystem, no mocks, per this project's Testing Rules."""
+
+    def test_fully_valid_binding_is_safe_with_no_diagnostics_or_conflicts(self, conn, tmp_path):
+        """2.1B-INT-003 (P0, AC6, R-009)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        result = pb.validate_binding(conn, created["id"])
+        assert result["binding_id"] == created["id"]
+        assert result["safe"] is True
+        assert result["validation_state"] == "valid"
+        assert result["diagnostics"] == []
+        assert result["conflicts"] == []
+
+    def test_cwd_that_never_existed_returns_invalid_cwd_diagnostic(self, conn, tmp_path):
+        """2.1B-INT-001 (P0, AC1, R-001/R-013): `create_binding()` does not
+        check cwd existence, so a binding can be persisted with a
+        `bound_project_cwd` that never existed on disk."""
+        never_existed = str(tmp_path / "never-existed")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bound_project_cwd=never_existed)
+        )
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_cwd"
+        assert "invalid_cwd" in {d["category"] for d in result["diagnostics"]}
+
+    def test_existing_non_git_cwd_flagged_not_a_git_repository(self, conn, tmp_path):
+        """2.1B-INT-002 (P0, AC3, R-001/R-003)."""
+        non_git_dir = _make_plain_dir(tmp_path, "not-a-repo")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bound_project_cwd=str(non_git_dir))
+        )
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["cwd_check"]["reason"] == "cwd_is_not_a_git_repository"
+
+    def test_missing_bmad_dir_returns_invalid_bmad_reference_diagnostic(self, conn, tmp_path):
+        """2.1B-INT-018 (P1, AC4, R-004)."""
+        missing_bmad = str(tmp_path / "missing-bmad")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bmad_skill_dir=missing_bmad)
+        )
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert "invalid_bmad_reference" in {d["category"] for d in result["diagnostics"]}
+
+    def test_existing_bmad_dir_remains_safe(self, conn, tmp_path):
+        """2.1B-INT-019 (P1, AC4/AC6, R-004)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        result = pb.validate_binding(conn, created["id"])
+        assert result["bmad_reference_check"] == {"valid": True, "reason": None}
+        assert result["safe"] is True
+
+    def test_malformed_github_reference_json_returns_diagnostic_no_exception(self, conn, tmp_path):
+        """2.1B-INT-004 (P0, AC5, R-005)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "github_reference", "{not valid json")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_github_reference"
+        assert "invalid_github_reference" in {d["category"] for d in result["diagnostics"]}
+
+    def test_github_reference_non_dict_json_returns_diagnostic_no_exception(self, conn, tmp_path):
+        """2.1B-INT-005 (P0, AC5, R-005)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "github_reference", json.dumps(["owner", "repo"]))
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_github_reference"
+
+    def test_malformed_provider_metadata_json_returns_diagnostic_no_exception(self, conn, tmp_path):
+        """2.1B-INT-006 (P0, AC5, R-005)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "provider_metadata", "{not valid json")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_provider_metadata"
+        assert "invalid_provider_metadata" in {d["category"] for d in result["diagnostics"]}
+
+    def test_provider_metadata_non_dict_json_returns_diagnostic_no_exception(self, conn, tmp_path):
+        """2.1B-INT-007 (P0, AC5, R-005): provider metadata JSON that parses
+        to a non-dict must not crash `validate_binding()`."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "provider_metadata", json.dumps([1, 2, 3]))
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_provider_metadata"
+
+    def test_one_sided_provider_identity_raw_row_returns_diagnostic_no_exception(
+        self, conn, tmp_path
+    ):
+        """2.1B-INT-007/030 (P0/P1, AC5, R-005): a persisted row with
+        `provider_name` set but `provider_binding_name` NULL (only
+        reachable via an out-of-band write, since `create_binding()`
+        rejects this shape) must degrade to a diagnostic, not an
+        exception."""
+        created = pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path, provider_name=None, provider_binding_name=None, provider_metadata=None
+            ),
+        )
+        set_raw_column(conn, created["id"], "provider_name", "archon")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_provider_metadata"
+        assert "invalid_provider_metadata" in {d["category"] for d in result["diagnostics"]}
+
+    def test_provider_metadata_without_identity_raw_row_returns_diagnostic(self, conn, tmp_path):
+        """2.1B-INT-007/030 (P0/P1, AC5, R-005): metadata present without a
+        complete Controller Identity (only reachable via an out-of-band
+        write)."""
+        created = pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path, provider_name=None, provider_binding_name=None, provider_metadata=None
+            ),
+        )
+        set_raw_column(
+            conn, created["id"], "provider_metadata", json.dumps({"bindingId": "wpb_x"})
+        )
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["validation_state"] == "invalid_provider_metadata"
+
+    def test_unknown_binding_id_raises_value_error(self, conn):
+        """2.1B-INT-017 (P1, R-015): a binding id that resolves to no row
+        is a caller/programmer error, not a validation outcome."""
+        before = row_count(conn)
+        with pytest.raises(ValueError):
+            pb.validate_binding(conn, "pb_doesnotexist")
+        assert row_count(conn) == before
+
+    def test_validation_state_precedence_cwd_wins_over_everything(self, conn, tmp_path):
+        """2.1B-INT-013 (P0, AC1/AC4/AC5, R-009): when cwd AND bmad AND
+        github AND provider are all simultaneously invalid,
+        `validation_state` must be `invalid_cwd` (highest precedence)."""
+        never_existed = str(tmp_path / "never-existed")
+        missing_bmad = str(tmp_path / "missing-bmad")
+        created = pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path, bound_project_cwd=never_existed, bmad_skill_dir=missing_bmad
+            ),
+        )
+        set_raw_column(conn, created["id"], "github_reference", "{not valid json")
+        set_raw_column(conn, created["id"], "provider_metadata", "{not valid json")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["validation_state"] == "invalid_cwd"
+        assert result["safe"] is False
+
+    def test_validation_state_precedence_bmad_before_github_and_provider(self, conn, tmp_path):
+        """2.1B-INT-013 (P0, AC1/AC4/AC5, R-009): with a VALID cwd but
+        invalid bmad + github + provider simultaneously, `validation_state`
+        must be `invalid_bmad_reference` (second-highest precedence)."""
+        missing_bmad = str(tmp_path / "missing-bmad")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bmad_skill_dir=missing_bmad)
+        )
+        set_raw_column(conn, created["id"], "github_reference", "{not valid json")
+        set_raw_column(conn, created["id"], "provider_metadata", "{not valid json")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["validation_state"] == "invalid_bmad_reference"
+
+    def test_validation_state_precedence_github_before_provider(self, conn, tmp_path):
+        """2.1B-INT-013 (P0, AC1/AC5, R-009): with valid cwd/bmad but
+        invalid github + provider simultaneously, `validation_state` must
+        be `invalid_github_reference` (ahead of
+        `invalid_provider_metadata`)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "github_reference", "{not valid json")
+        set_raw_column(conn, created["id"], "provider_metadata", "{not valid json")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["validation_state"] == "invalid_github_reference"
+
+    def test_safe_iff_all_checks_valid_and_conflicts_empty(self, conn, tmp_path):
+        """2.1B-INT-014 (P0, AC1/AC4/AC5/AC6, R-009): `safe` is exactly the
+        conjunction of every check's validity (or `None` for the optional
+        BMAD check) and an empty conflicts list — never computed
+        independently."""
+        valid_created = pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path,
+                repo_name="valid-one",
+                bmad_name="bmad-valid",
+                github_reference={"owner": "Org", "repo": "valid-one"},
+                provider_binding_name="engine-valid",
+            ),
+        )
+        valid_result = pb.validate_binding(conn, valid_created["id"])
+        assert valid_result["safe"] is True
+        assert valid_result["validation_state"] == "valid"
+
+        never_existed = str(tmp_path / "never-existed-2")
+        invalid_created = pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path,
+                repo_name="invalid-one",
+                bmad_name="bmad-invalid",
+                bound_project_cwd=never_existed,
+                github_reference={"owner": "Org", "repo": "invalid-one"},
+                provider_binding_name="engine-invalid",
+            ),
+        )
+        invalid_result = pb.validate_binding(conn, invalid_created["id"])
+        assert invalid_result["safe"] is False
+
+    def test_never_reports_self_as_conflict(self, conn, tmp_path):
+        """2.1B-INT-015 (P1, AC2/AC6, R-007): a binding created through
+        `create_binding()` must never be reported as conflicting with
+        itself when re-validated. Doubles as the Task 4 critical
+        invariant test — no two persisted rows in one profile can collide
+        on any dimension (hard partial unique indexes), so this is the
+        only reachable outcome for the existing-binding conflict scan
+        today (see W-11)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        result = pb.validate_binding(conn, created["id"])
+        assert result["conflicts"] == []
+
+    def test_exclude_binding_id_only_excludes_the_specified_row(self, conn, tmp_path):
+        """2.1B-INT-016 (P1, AC2, R-007): `_check_uniqueness_dimensions(...,
+        exclude_binding_id=...)` must exclude that row's own SQL match, but
+        still find a DIFFERENT sibling colliding on the same dimension —
+        proving exclusion is per-row, not "skip all matches"."""
+        a = pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path,
+                repo_name="a-repo",
+                github_reference=None,
+                bmad_skill_dir=None,
+                provider_name=None,
+                provider_binding_name=None,
+                provider_metadata=None,
+            ),
+        )
+        b = pb.create_binding(
+            conn,
+            **real_binding_kwargs(
+                tmp_path,
+                repo_name="b-repo",
+                github_reference=None,
+                bmad_skill_dir=None,
+                provider_name=None,
+                provider_binding_name=None,
+                provider_metadata=None,
+            ),
+        )
+        a_cwd = pb._normalize_path(str(tmp_path / "a-repo"))
+
+        self_excluded = pb._check_uniqueness_dimensions(
+            conn, "default", a_cwd, None, None, None, None, exclude_binding_id=a["id"]
+        )
+        assert "bound_project_cwd" not in self_excluded
+
+        sibling_found = pb._check_uniqueness_dimensions(
+            conn, "default", a_cwd, None, None, None, None, exclude_binding_id=b["id"]
+        )
+        assert sibling_found.get("bound_project_cwd") == a["id"]
+
+    def test_one_malformed_field_does_not_prevent_other_checks(self, conn, tmp_path):
+        """2.1B-INT-020 (P0, AC5, R-005): when only `github_reference` is
+        malformed, `validate_binding()` must still assemble the cwd, bmad,
+        and provider_metadata checks plus the conflict scan, not
+        short-circuit."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "github_reference", "{not valid json")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["cwd_check"] == {"valid": True, "reason": None}
+        assert result["bmad_reference_check"] == {"valid": True, "reason": None}
+        assert result["github_reference_check"]["valid"] is False
+        assert result["provider_metadata_check"] == {"valid": True, "reason": None}
+        assert result["conflicts"] == []
+
+    def test_stale_cwd_deleted_after_create_becomes_unsafe(self, conn, tmp_path):
+        """2.1B-INT-027 (P1, AC1, R-013): revalidation must use current
+        filesystem state — a directory deleted after the binding was
+        created must be caught, not just what was true at create time."""
+        repo = _make_git_repo(tmp_path, "will-be-deleted")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bound_project_cwd=str(repo))
+        )
+        assert pb.validate_binding(conn, created["id"])["safe"] is True
+
+        shutil.rmtree(repo)
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["cwd_check"]["reason"] == "cwd_does_not_exist"
+
+    def test_stale_git_removed_after_create_becomes_unsafe(self, conn, tmp_path):
+        """2.1B-INT-028 (P1, AC3, R-013)."""
+        repo = _make_git_repo(tmp_path, "git-will-be-removed")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bound_project_cwd=str(repo))
+        )
+        assert pb.validate_binding(conn, created["id"])["safe"] is True
+
+        shutil.rmtree(repo / ".git")
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert result["cwd_check"]["reason"] == "cwd_is_not_a_git_repository"
+
+    def test_stale_bmad_dir_deleted_after_create_becomes_unsafe(self, conn, tmp_path):
+        """2.1B-INT-029 (P1, AC4, R-013)."""
+        bmad_dir = _make_plain_dir(tmp_path, "bmad-will-be-deleted")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bmad_skill_dir=str(bmad_dir))
+        )
+        assert pb.validate_binding(conn, created["id"])["safe"] is True
+
+        shutil.rmtree(bmad_dir)
+
+        result = pb.validate_binding(conn, created["id"])
+        assert result["safe"] is False
+        assert "invalid_bmad_reference" in {d["category"] for d in result["diagnostics"]}
+
+    def test_diagnostic_messages_are_nonempty_actionable_and_tagged(self, conn, tmp_path):
+        """2.1B-INT-031 (P1, AC1/AC2/AC4/AC5, R-008): every diagnostic
+        entry carries a nonempty, human-actionable message and the
+        affected local category — never a placeholder or blank string."""
+        never_existed = str(tmp_path / "never-existed-3")
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bound_project_cwd=never_existed)
+        )
+        result = pb.validate_binding(conn, created["id"])
+        assert result["diagnostics"], "expected at least one diagnostic"
+        for diag in result["diagnostics"]:
+            assert isinstance(diag["message"], str) and diag["message"].strip()
+            assert isinstance(diag["category"], str) and diag["category"].strip()
+
+    def test_validate_binding_conflict_diagnostic_uses_update_project_binding(
+        self, conn, tmp_path, monkeypatch
+    ):
+        """2.1B-CONTRACT-001 (partial, P0, AC2, R-007/R-008, W-11):
+        `validate_binding()`'s existing-binding conflict scan can never
+        observe a real non-empty result through supported writes (hard
+        partial unique indexes make two persisted colliding rows
+        impossible — see W-11 and Task 4's own critical invariant note).
+        To still exercise the conflict-diagnostic assembly branch
+        (category mapping + `recovery_option: "update_project_binding"`),
+        force the shared dimension-check seam
+        (`_check_uniqueness_dimensions`, reused by both
+        `preview_binding_conflicts` and `validate_binding`'s re-scan per
+        Task 5) to report a synthetic collision for this call only. This
+        never persists a second colliding row — it only proves the
+        diagnostic-assembly branch is wired correctly."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+
+        def _fake_check(*args, **kwargs):
+            return {"bound_project_cwd": "pb_other_binding"}
+
+        monkeypatch.setattr(pb, "_check_uniqueness_dimensions", _fake_check)
+
+        result = pb.validate_binding(conn, created["id"])
+
+        assert result["conflicts"] == [
+            {"category": "cwd_conflict", "conflicting_binding_id": "pb_other_binding"}
+        ]
+        conflict_diag = next(
+            d for d in result["diagnostics"] if d["category"] == "cwd_conflict"
+        )
+        assert conflict_diag["next_action_owner"] == "configuration"
+        assert conflict_diag["recovery_option"] == "update_project_binding"
+        assert result["validation_state"] == "conflicting"
+        assert result["safe"] is False
+
+
+class TestDiagnosticContractVocabulary:
+    """Contract tests for `validate_binding()`'s diagnostic vocabulary
+    (Story 2.1b, Task 5 bullet 5): exact `next_action_owner`/
+    `recovery_option`/category strings, reusing the operational-diagnostic
+    schema's existing enum values for forward compatibility with Story
+    5.3a."""
+
+    def test_invalid_cwd_diagnostic_uses_repair_project_binding(self, conn, tmp_path):
+        """2.1B-CONTRACT-001 (P0, AC1, R-008)."""
+        created = pb.create_binding(
+            conn, **real_binding_kwargs(tmp_path, bound_project_cwd=str(tmp_path / "gone"))
+        )
+        result = pb.validate_binding(conn, created["id"])
+        matching = [d for d in result["diagnostics"] if d["category"] == "invalid_cwd"]
+        assert matching
+        for diag in matching:
+            assert diag["next_action_owner"] == "configuration"
+            assert diag["recovery_option"] == "repair_project_binding"
+
+    def test_invalid_bmad_reference_diagnostic_uses_repair_project_binding(self, conn, tmp_path):
+        """2.1B-CONTRACT-001 (P0, AC4, R-008)."""
+        created = pb.create_binding(
+            conn,
+            **real_binding_kwargs(tmp_path, bmad_skill_dir=str(tmp_path / "gone-bmad")),
+        )
+        result = pb.validate_binding(conn, created["id"])
+        matching = [
+            d for d in result["diagnostics"] if d["category"] == "invalid_bmad_reference"
+        ]
+        assert matching
+        for diag in matching:
+            assert diag["next_action_owner"] == "configuration"
+            assert diag["recovery_option"] == "repair_project_binding"
+
+    def test_invalid_github_reference_diagnostic_uses_repair_project_binding(self, conn, tmp_path):
+        """2.1B-CONTRACT-001 (P0, AC5, R-008)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "github_reference", "{not valid json")
+        result = pb.validate_binding(conn, created["id"])
+        matching = [
+            d for d in result["diagnostics"] if d["category"] == "invalid_github_reference"
+        ]
+        assert matching
+        for diag in matching:
+            assert diag["next_action_owner"] == "configuration"
+            assert diag["recovery_option"] == "repair_project_binding"
+
+    def test_invalid_provider_metadata_diagnostic_uses_repair_project_binding(
+        self, conn, tmp_path
+    ):
+        """2.1B-CONTRACT-001 (P0, AC5, R-008)."""
+        created = pb.create_binding(conn, **real_binding_kwargs(tmp_path))
+        set_raw_column(conn, created["id"], "provider_metadata", "{not valid json")
+        result = pb.validate_binding(conn, created["id"])
+        matching = [
+            d for d in result["diagnostics"] if d["category"] == "invalid_provider_metadata"
+        ]
+        assert matching
+        for diag in matching:
+            assert diag["next_action_owner"] == "configuration"
+            assert diag["recovery_option"] == "repair_project_binding"
+
+    def test_conflict_categories_map_exact_dimension_strings(self, conn, tmp_path):
+        """2.1B-CONTRACT-001 (P0, AC2/AC7, R-006/R-008):
+        `preview_binding_conflicts()` maps each
+        `_check_uniqueness_dimensions()` key to the exact local category
+        string this story defines."""
+        pb.create_binding(conn, **real_binding_kwargs(tmp_path, repo_name="target"))
+        result = pb.preview_binding_conflicts(
+            conn,
+            profile="default",
+            bound_project_cwd=str(tmp_path / "target"),
+            github_reference={"owner": "NousResearch", "repo": "hermes-agent"},
+            bmad_skill_dir=str(tmp_path / "_bmad"),
+            provider_name="archon",
+            provider_binding_name="workflow-engine-primary",
+        )
+        assert {c["category"] for c in result} == {
+            "cwd_conflict",
+            "github_reference_conflict",
+            "bmad_mount_conflict",
+            "provider_identity_conflict",
+        }
+
+
+class TestScopeRegressionGuards:
+    """Regression/static guards for Story 2.1b's own Dev Notes scope
+    boundary. Unlike the rest of this section, these assert the CURRENT
+    absence of scope-creep surface — they should PASS today and continue
+    passing after implementation; they exist to catch scope creep, not to
+    encode not-yet-built behavior."""
+
+    def test_no_new_lifecycle_or_audit_columns_added(self, conn):
+        """2.1B-REG-001 (P1, R-010, W-02): `validate_binding()` requires no
+        new database columns. Schema PRAGMA must show exactly the columns
+        2.1a defined — no `enabled`, durable `validation_state`, or audit
+        columns."""
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(project_bindings)")}
+        assert columns == pb._EXPECTED_COLUMNS
+        assert "enabled" not in columns
+        assert "validation_state" not in columns
+
+    def test_no_activation_or_lifecycle_functions_added(self):
+        """2.1B-REG-003 (P1, R-010, W-01/W-02/W-05): this story must not add
+        an `activate_binding()`/`enable_binding()`/`disable_binding()`/
+        `update_binding()` command surface — those belong to Story
+        2.1c/2.3."""
+        forbidden_names = (
+            "activate_binding",
+            "enable_binding",
+            "disable_binding",
+            "update_binding",
+            "repair_binding",
+        )
+        for name in forbidden_names:
+            assert not hasattr(pb, name), f"unexpected scope-creep function: {name}"
+
+    def test_no_cli_or_toolset_wiring_references_new_validation_functions(self):
+        """2.1B-REG-003 (P1, R-010, W-01): no CLI command or tool registry
+        wiring should call `validate_binding()`/`preview_binding_conflicts()`
+        yet — that wiring belongs to later stories (2.3, 2.4) per this
+        story's Dev Notes "Project Structure Notes"."""
+        candidate_files = [REPO_ROOT / "cli.py", REPO_ROOT / "toolsets.py"]
+        for path in candidate_files:
+            if not path.exists():
+                continue
+            text = path.read_text(encoding="utf-8")
+            assert "validate_binding(" not in text, (
+                f"{path} should not wire validate_binding() yet"
+            )
+            assert "preview_binding_conflicts(" not in text, (
+                f"{path} should not wire preview_binding_conflicts() yet"
+            )
+
+    def test_migration_seam_unchanged_no_new_column_ddl(self, db_path):
+        """2.1B-REG-001 (P1, R-010, W-02): the `_migrate_add_optional_columns()`
+        seam stays reserved for Story 2.1c — connecting twice must not
+        introduce any column beyond 2.1a's schema."""
+        conn1 = pb.connect(db_path=db_path)
+        try:
+            first = {row["name"] for row in conn1.execute("PRAGMA table_info(project_bindings)")}
+        finally:
+            conn1.close()
+        conn2 = pb.connect(db_path=db_path)
+        try:
+            second = {row["name"] for row in conn2.execute("PRAGMA table_info(project_bindings)")}
+        finally:
+            conn2.close()
+        assert first == second == pb._EXPECTED_COLUMNS
 
 
 # =============================================================================
