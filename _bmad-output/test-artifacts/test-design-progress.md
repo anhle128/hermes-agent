@@ -4,11 +4,13 @@ totalSteps: 5
 stepsCompleted: ['step-01-detect-mode', 'step-02-load-context', 'step-03-risk-and-testability', 'step-04-coverage-plan', 'step-05-generate-output']
 lastStep: 'step-05-generate-output'
 nextStep: ''
-lastSaved: '2026-07-13'
+lastSaved: '2026-07-16'
 inputDocuments:
   - '_bmad/tea/config.yaml'
   - '_bmad-output/project-context.md'
   - '_bmad-output/implementation-artifacts/2-1a-create-and-persist-project-bindings.md'
+  - '_bmad-output/implementation-artifacts/2-1b-validate-project-binding-safety-and-conflicts.md'
+  - '_bmad-output/test-artifacts/test-design-epic-2.1a.md'
   - '_bmad-output/planning-artifacts/prd.md'
   - '_bmad-output/planning-artifacts/architecture.md'
   - '_bmad-output/planning-artifacts/epics.md'
@@ -358,3 +360,38 @@ The immediate design blockers are R-01 through R-04. The required-field contract
 - **Checklist validation:** Risk IDs/scores, scenario IDs/counts, AC/risk/reviewer mappings, NFR evidence plan, PR/nightly/weekly strategy, range estimates, entry/exit criteria, residual risks, and Markdown structure were checked. The prerequisite “requirements are unambiguous” remains intentionally unchecked because R-001–R-004 are explicit blockers; the artifact is therefore Draft, not Approved.
 - **Session hygiene:** No browser/Playwright session was opened. Workflow artifacts are contained under `_bmad-output/test-artifacts/`.
 - **Open assumptions:** No public caller exists in this story; physical path alias equivalence and performance thresholds remain owned by W-09 and W-10.
+
+## Story 2.1b Test Design Run - 2026-07-16
+
+### Step 1: Detect Mode and Prerequisites
+
+- **Mode:** Epic-Level.
+- **Reason:** The input is a story artifact with acceptance criteria, tasks, and dev notes: `_bmad-output/implementation-artifacts/2-1b-validate-project-binding-safety-and-conflicts.md`.
+- **Prerequisites:** Story requirements, architecture/PRD context, predecessor Story 2.1a design and implementation notes, existing binding code, and existing binding tests were available.
+
+### Step 2: Context and Knowledge Loaded
+
+- Loaded TEA config, persistent project context, Story 2.1b, Story 2.1a implementation notes, Story 2.1a test design, PRD, architecture, epics, Workflow Commander contract README, operational diagnostic schema, `hermes_project_work/bindings.py`, and `tests/project_work/test_bindings.py`.
+- Loaded required knowledge fragments: risk governance, probability-impact scale, test levels, priorities, NFR criteria, and test quality guidance.
+- Detected stack: backend-heavy Python package with pytest; applicable tests are focused Python unit/integration tests using real SQLite and real filesystem state under `tmp_path`.
+
+### Step 3: Risk and Testability
+
+- Identified 16 risks: 12 high-priority risks with score >= 6, two medium risks, and one low performance/SLO risk.
+- P0 risks: invalid cwd fail-open, malformed stored GitHub/provider data escaping as exceptions, conflict preview/category/read-only failures.
+- P1 risks: allowed-root order, `.git` convention drift, BMAD reference safety, self-conflict exclusion, diagnostic vocabulary mismatch, validation-state/safe disagreement, stale filesystem state, normalization/profile scoping, scope creep, and mock-only evidence.
+- Every known reviewer concern from the story notes was converted into a risk or explicit non-risk with probability, impact, rationale, and scenario/waiver mapping.
+
+### Step 4: Coverage Plan
+
+- Planned 50 conceptual scenarios: 20 P0 and 30 P1.
+- Every acceptance criterion maps to atomic unit/integration/contract/static scenarios or an explicit waiver.
+- Edge classes covered or waived: happy path, negative path, boundary cases, malformed input/data, stale data, duplicate actions, out-of-order events, partial failure, dependency failure, timeout, cancellation, concurrency/race, rollback, permission/auth, and regression.
+- Waivers W-01 through W-11 include reason, owner, residual risk, and follow-up trigger.
+
+### Step 5: Output Generation and Validation
+
+- **Output:** `_bmad-output/test-artifacts/test-design-epic-2.1b.md`
+- **Resolved execution mode:** Sequential. Epic-level mode produces one output artifact.
+- **Gate:** P0 pass rate 100%; deterministic P1 pass rate 100%; no P0/P1 edge case is accepted by implication.
+- **Checklist validation:** AC/risk/reviewer traceability, NFR plan, PR/nightly/weekly execution strategy, range estimates, quality gates, and waiver completeness were checked. No Playwright/browser session was opened.

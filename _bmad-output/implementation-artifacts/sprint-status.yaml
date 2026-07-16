@@ -1,5 +1,5 @@
 # generated: 2026-07-12T06:27:13+0700
-# last_updated: 2026-07-16T00:30:31+0700
+# last_updated: 2026-07-16T03:45:17+0700
 # project: hermes-agent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -44,7 +44,7 @@
 #   output must be available and validated first.
 
 generated: "2026-07-12T06:27:13+0700"
-last_updated: "2026-07-16T00:30:31+0700"
+last_updated: "2026-07-16T03:45:17+0700"
 project: hermes-agent
 project_key: NOKEY
 tracking_system: file-system
@@ -53,7 +53,7 @@ story_location: /Users/agent/.archon/workspaces/anhle128/hermes-agent/worktrees/
 development_status:
   epic-2: in-progress
   2-1a-create-and-persist-project-bindings: done
-  2-1b-validate-project-binding-safety-and-conflicts: backlog
+  2-1b-validate-project-binding-safety-and-conflicts: done
   2-1c-manage-project-binding-lifecycle-and-status: backlog
   2-2-mount-project-local-bmad-skills-for-a-binding: backlog
   2-3-enforce-bound-project-cwd-for-workflow-actions: backlog
