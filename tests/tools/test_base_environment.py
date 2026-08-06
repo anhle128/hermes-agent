@@ -125,7 +125,7 @@ class TestAtomicSnapshotWrite:
         env = _TestableEnv()
         env._snapshot_ready = True
         wrapped = env._wrap_command("echo hi", "/tmp")
-        assert "mktemp " in wrapped
+        assert "command mktemp " in wrapped
         assert ".tmp.XXXXXXXXXX" in wrapped
         assert "$BASHPID" not in wrapped
         # The bare $$ temp form must be gone.
@@ -150,7 +150,7 @@ class TestAtomicSnapshotWrite:
             pass
         boot = captured.get("cmd", "")
         assert ".tmp." in boot and "mv -f " in boot, boot
-        assert "mktemp " in boot
+        assert "command mktemp " in boot
         assert "$BASHPID" not in boot
         assert ".tmp.$$" not in boot
 

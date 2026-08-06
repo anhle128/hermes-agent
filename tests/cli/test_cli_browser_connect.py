@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from cli import HermesCLI
 from hermes_cli.browser_connect import (
+    ChromeDebugLaunch,
+    LaunchAttempt,
     _wait_for_browser_debug_ready_or_exit,
     get_chrome_debug_candidates,
     is_browser_debug_ready,
@@ -39,6 +41,15 @@ class _FakeResponse:
 
 
 class TestChromeDebugLaunch:
+    def test_hint_reports_spawn_failed_candidate(self):
+        result = ChromeDebugLaunch(
+            attempts=[
+                LaunchAttempt(binary="/usr/bin/chromium", state="spawn-failed"),
+            ]
+        )
+
+        assert "could not be launched automatically" in result.hint
+
     def test_browser_debug_ready_requires_http_cdp_endpoint(self):
         requested = []
 

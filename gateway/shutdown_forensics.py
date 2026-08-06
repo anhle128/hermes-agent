@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -239,6 +240,33 @@ def spawn_async_diagnostic(
         "dmesg -T 2>/dev/null | tail -20 || journalctl --user -n 20 --no-pager 2>/dev/null | tail -20 || true; "
         "echo '=== end ==='"
     )
+    timeout_bin = shutil.which("timeout")
+    timeout_arg = f"{max(timeout_seconds, 0.1):.3f}"
+    python_timeout_wrapper = (
+        "import os, signal, subprocess, sys\n"
+        "proc = subprocess.Popen(['bash', '-c', sys.argv[1]], start_new_session=True)\n"
+        "try:\n"
+        "    raise SystemExit(proc.wait(timeout=float(sys.argv[2])))\n"
+        "except subprocess.TimeoutExpired:\n"
+        "    try:\n"
+        "        os.killpg(proc.pid, signal.SIGTERM)\n"
+        "    except ProcessLookupError:\n"
+        "        pass\n"
+        "    try:\n"
+        "        proc.wait(timeout=1.0)\n"
+        "    except subprocess.TimeoutExpired:\n"
+        "        try:\n"
+        "            os.killpg(proc.pid, signal.SIGKILL)\n"
+        "        except ProcessLookupError:\n"
+        "            pass\n"
+        "        proc.wait()\n"
+        "    print('shutdown diagnostic timed out', file=sys.stderr)\n"
+    )
+    cmd = (
+        [timeout_bin, f"{timeout_seconds:.0f}", "bash", "-c", script]
+        if timeout_bin
+        else [sys.executable or "python3", "-c", python_timeout_wrapper, script, timeout_arg]
+    )
 
     try:
         # Open the log file in append mode and let the subprocess inherit.
@@ -255,7 +283,7 @@ def spawn_async_diagnostic(
         # start_new_session, a SIGKILL on our cgroup takes the diag down
         # before it can flush.
         proc = subprocess.Popen(
-            ["timeout", f"{timeout_seconds:.0f}", "bash", "-c", script],
+            cmd,
             stdout=fd,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,

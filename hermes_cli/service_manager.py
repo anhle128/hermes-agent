@@ -496,6 +496,8 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
             # swallowing this keeps both root and unprivileged callers
             # on one code path.
             pass
+        else:
+            path.chmod(mode)
 
     # Top-level event/ dir (this is the s6-svlisten1 event-subscription
     # dir at the service root, distinct from supervise/event/).
