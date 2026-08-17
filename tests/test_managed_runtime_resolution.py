@@ -26,6 +26,8 @@ whose behavior is separately covered by a real test.
 from __future__ import annotations
 
 import ast
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -40,6 +42,8 @@ _MANAGED_COMMANDS = frozenset({"uv", "node", "npm", "npx"})
 # resolution policy, tests assert against PATH deliberately, and skills/scripts
 # run as standalone user-invoked programs.
 _EXEMPT_DIRS = (
+    ".agents",
+    ".claude",
     "tests",
     "plugins",
     "skills",
@@ -82,9 +86,7 @@ _ALLOWED: dict[tuple[str, str], str] = {
         "_ensure_tui_node()'s idempotence gate: the question really is 'is "
         "node already discoverable on PATH', before bootstrapping one."
     ),
-    ("hermes_cli/main.py", "npm"): (
-        "Same _ensure_tui_node() gate as node."
-    ),
+    ("hermes_cli/main.py", "npm"): ("Same _ensure_tui_node() gate as node."),
     ("tools/browser_tool.py", "npx"): (
         "agent-browser runs via `npx`, resolved against the extended browser "
         "PATH that _merge_browser_path() already seeds with the managed dirs."
@@ -105,7 +107,9 @@ def _iter_which_calls(tree: ast.AST):
         name = (
             func.attr
             if isinstance(func, ast.Attribute)
-            else func.id if isinstance(func, ast.Name) else None
+            else func.id
+            if isinstance(func, ast.Name)
+            else None
         )
         if name != "which":
             continue
@@ -116,11 +120,20 @@ def _iter_which_calls(tree: ast.AST):
 
 def _source_files() -> list[Path]:
     files: list[Path] = []
-    for path in REPO_ROOT.rglob("*.py"):
-        rel = path.relative_to(REPO_ROOT)
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+    )
+    for rel_bytes in result.stdout.split(b"\0"):
+        if not rel_bytes:
+            continue
+        rel_text = os.fsdecode(rel_bytes)
+        rel = Path(rel_text)
         if rel.parts and rel.parts[0] in _EXEMPT_DIRS:
             continue
-        files.append(path)
+        files.append(REPO_ROOT / rel)
     return files
 
 
@@ -128,10 +141,7 @@ def _findings() -> list[tuple[str, str, int]]:
     """Return (relpath, command, lineno) for every bare managed lookup."""
     found: list[tuple[str, str, int]] = []
     for path in _source_files():
-        try:
-            source = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+        source = path.read_text(encoding="utf-8")
         if "which(" not in source:
             continue
         try:
@@ -144,6 +154,51 @@ def _findings() -> list[tuple[str, str, int]]:
     return found
 
 
+def test_source_scan_ignores_untracked_build_scratch(tmp_path, monkeypatch):
+    """Setuptools sdist scratch dirs are not repository source."""
+    repo = tmp_path / "repo"
+    tracked_dir = repo / "hermes_cli"
+    scratch_dir = repo / "hermes_agent-0.20.0" / "pkg"
+    tracked_dir.mkdir(parents=True)
+    scratch_dir.mkdir(parents=True)
+    tracked = tracked_dir / "main.py"
+    unicode_tracked = tracked_dir / "café.py"
+    newline_tracked = tracked_dir / "line\nbreak.py"
+    tracked.write_text("import shutil\nshutil.which('node')\n", encoding="utf-8")
+    unicode_tracked.write_text("print('unicode path')\n", encoding="utf-8")
+    newline_tracked.write_text("print('newline path')\n", encoding="utf-8")
+    (scratch_dir / "scratch.py").write_text(
+        "import shutil\nshutil.which('node')\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "add",
+            "--",
+            "hermes_cli/main.py",
+            "hermes_cli/café.py",
+            "hermes_cli/line\nbreak.py",
+        ],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setitem(globals(), "REPO_ROOT", repo)
+
+    files = _source_files()
+
+    assert set(files) == {tracked, unicode_tracked, newline_tracked}
+    assert all(path.exists() for path in files)
+
+
+def test_source_scan_fails_fast_when_git_ls_files_fails(tmp_path, monkeypatch):
+    monkeypatch.setitem(globals(), "REPO_ROOT", tmp_path)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _source_files()
+
+
 def test_no_unreviewed_bare_managed_runtime_lookups():
     """Every bare which() for a managed runtime is a reviewed exemption."""
     unexpected = [
@@ -154,7 +209,9 @@ def test_no_unreviewed_bare_managed_runtime_lookups():
 
     assert not unexpected, (
         "Bare PATH lookup for a Hermes-managed runtime.\n\n"
-        + "\n".join(f"  {rel}:{lineno}  which({cmd!r})" for rel, cmd, lineno in unexpected)
+        + "\n".join(
+            f"  {rel}:{lineno}  which({cmd!r})" for rel, cmd, lineno in unexpected
+        )
         + "\n\n$HERMES_HOME/bin (uv) and $HERMES_HOME/node are not on an "
         "arbitrary process's PATH, so this resolves a system copy — or nothing "
         "— on an install that has a managed one.\n"

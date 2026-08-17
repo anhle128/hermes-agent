@@ -249,14 +249,14 @@ def spawn_async_diagnostic(
         "    raise SystemExit(proc.wait(timeout=float(sys.argv[2])))\n"
         "except subprocess.TimeoutExpired:\n"
         "    try:\n"
-        "        os.killpg(proc.pid, signal.SIGTERM)\n"
+        "        os.killpg(proc.pid, signal.SIGTERM)\n"  # windows-footgun: ok — POSIX-only embedded script, guarded above
         "    except ProcessLookupError:\n"
         "        pass\n"
         "    try:\n"
         "        proc.wait(timeout=1.0)\n"
         "    except subprocess.TimeoutExpired:\n"
         "        try:\n"
-        "            os.killpg(proc.pid, signal.SIGKILL)\n"
+        "            os.killpg(proc.pid, signal.SIGKILL)\n"  # windows-footgun: ok — POSIX-only embedded script, guarded above
         "        except ProcessLookupError:\n"
         "            pass\n"
         "        proc.wait()\n"

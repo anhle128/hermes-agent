@@ -1326,6 +1326,20 @@ def execute_code(
     if _guard.get("user_approved"):
         from tools.interrupt import clear_current_thread_interrupt
         clear_current_thread_interrupt()
+    else:
+        from tools.interrupt import is_interrupted as _is_interrupted
+        if _is_interrupted():
+            return json.dumps({
+                "status": "interrupted",
+                "output": "\n[execution interrupted — user sent a new message]",
+                "exit_code": 130,
+                "tool_calls_made": 0,
+                "duration_seconds": 0,
+                "stdout_truncated": False,
+                "stdout_bytes_captured": 0,
+                "stdout_bytes_total": 0,
+                "stdout_bytes_omitted": 0,
+            }, ensure_ascii=False)
 
     if env_type != "local":
         return _execute_remote(code, task_id, enabled_tools)

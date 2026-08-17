@@ -70,15 +70,15 @@ def cmd_ensure_marker_gitignore(args: list[str]) -> int:
         return 1
     path = Path(gitignore)
     if not path.exists():
-        path.write_text("")
-    content = path.read_text()
+        path.write_text("", encoding="utf-8")
+    content = path.read_text(encoding="utf-8")
     for line in content.replace("\r\n", "\n").split("\n"):
         stripped = line.strip()
         if stripped and not stripped.startswith("#") and stripped == entry:
             write_json({"ok": True, "changed": False, "path": str(path)})
             return 0
     prefix = "" if not content or content.endswith("\n") else "\n"
-    with path.open("a") as handle:
+    with path.open("a", encoding="utf-8") as handle:
         handle.write(f"{prefix}{entry}\n")
     write_json({"ok": True, "changed": True, "path": str(path)})
     return 0
