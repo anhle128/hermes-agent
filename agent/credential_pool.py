@@ -2074,9 +2074,13 @@ class CredentialPool:
                 # handed back at least once without recovery, so stop
                 # guessing and surface the error (no cooldown is written for
                 # anybody — healthy keys stay available for the next turn).
-                self._unmatched_rotation_streak += 1
                 available_count, _ = self._available_entries()
                 available_count = len(available_count)
+                if available_count <= 1:
+                    self._unmatched_rotation_streak = 0
+                    self._current_id = None
+                    return None
+                self._unmatched_rotation_streak += 1
                 if self._unmatched_rotation_streak > max(available_count, 1):
                     logger.warning(
                         "credential pool: failed credential identity matched no "
@@ -2096,15 +2100,6 @@ class CredentialPool:
                 )
                 self._current_id = None
                 next_entry, _pending = self._select_unlocked(refresh=False)
-                avail, _ = self._available_entries()
-                if next_entry is not None and len(avail) == 1:
-                    # A single-entry pool cannot rotate. Returning its only
-                    # entry reports a successful recovery without changing
-                    # the credential, so the caller retries the same 401
-                    # indefinitely. Let fallback/error propagation proceed.
-                    self._unmatched_rotation_streak = 0
-                    self._current_id = None
-                    return None
                 return next_entry
             # A real entry was identified — any prior unmatched-rotation
             # streak is stale (this mark WILL advance pool state).
