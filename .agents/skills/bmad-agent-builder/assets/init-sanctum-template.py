@@ -52,7 +52,7 @@ def parse_yaml_config(config_path: Path) -> dict:
     config = {}
     if not config_path.exists():
         return config
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
@@ -68,7 +68,7 @@ def parse_yaml_config(config_path: Path) -> dict:
 def parse_frontmatter(file_path: Path) -> dict:
     """Extract YAML frontmatter from a markdown file."""
     meta = {}
-    with open(file_path) as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)

@@ -166,7 +166,8 @@ def test_retry_backoff_does_not_clear_genuine_interrupt(monkeypatch):
     (the clear runs ONCE before the loop, never re-clearing on retries)."""
     from tools.environments.local import LocalEnvironment
 
-    calls = {"n": 0, "interrupted_at_retry": None}
+    calls = {"n": 0}
+    interrupted_at_retry: dict[str, bool | None] = {"value": None}
 
     def fake_execute(self, command, **kw):
         if "sleep 1" not in command:  # ignore any incidental execute calls
@@ -176,7 +177,7 @@ def test_retry_backoff_does_not_clear_genuine_interrupt(monkeypatch):
             set_interrupt(True)  # Stop lands during the first attempt / backoff
             raise RuntimeError("transient backend error")
         # Second attempt: the bit set during the backoff must NOT be re-cleared.
-        calls["interrupted_at_retry"] = is_interrupted()
+        interrupted_at_retry["value"] = is_interrupted()
         return {"output": "partial\n[Command interrupted]", "returncode": 130}
 
     monkeypatch.setattr(LocalEnvironment, "execute", fake_execute)
@@ -186,7 +187,7 @@ def test_retry_backoff_does_not_clear_genuine_interrupt(monkeypatch):
     result = json.loads(tt.terminal_tool(command="sleep 1", force=True, task_id="retry-test"))
 
     assert calls["n"] == 2, calls
-    assert calls["interrupted_at_retry"] is True, "retry must NOT re-clear a genuine interrupt"
+    assert interrupted_at_retry["value"] is True, "retry must NOT re-clear a genuine interrupt"
     assert result["exit_code"] == 130, result
 
 
@@ -226,11 +227,11 @@ def test_execute_code_non_approved_still_interrupts_on_stale_bit(monkeypatch):
     set_interrupt(True)
 
     result = json.loads(execute_code(
-        code='import time; time.sleep(0.5); print("CODE_DONE")',
+        code='print("CODE_DONE", flush=True); import time; time.sleep(5)',
         task_id="test-clean-slate-2",
     ))
 
-    # Killed on the first poll before the script can print.
+    # Interrupted before spawn; the script must not run at all.
+    assert result["status"] == "interrupted", result
     assert "CODE_DONE" not in result["output"], result
-
-
+    assert result["stdout_bytes_total"] == 0, result

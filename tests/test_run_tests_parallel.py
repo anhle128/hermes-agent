@@ -20,6 +20,7 @@ POSIX-only: Windows has its own grandchild lifecycle (no shared session,
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -233,6 +234,58 @@ def _run_runner(probe_dir: Path, *extra: str) -> subprocess.CompletedProcess:
     )
 
 
+def _load_runner_module():
+    repo_root = Path(__file__).resolve().parent.parent
+    runner = repo_root / "scripts" / "run_tests_parallel.py"
+    spec = importlib.util.spec_from_file_location("run_tests_parallel_under_test", runner)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_basetemp_equals_passthrough_fails_before_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The runner owns pytest basetemp, so caller overrides fail fast."""
+    runner_module = _load_runner_module()
+    monkeypatch.setattr(
+        runner_module,
+        "_discover_files",
+        lambda _roots: pytest.fail("runner discovered files before rejecting --basetemp"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_tests_parallel.py", "--basetemp=/shared", "--paths", str(tmp_path)],
+    )
+
+    assert runner_module.main() == 2
+    output = capsys.readouterr()
+    assert "--basetemp is owned by scripts/run_tests_parallel.py" in output.err
+
+
+def test_basetemp_space_passthrough_fails_before_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Space-separated --basetemp DIR is rejected without running pytest."""
+    runner_module = _load_runner_module()
+    monkeypatch.setattr(
+        runner_module,
+        "_discover_files",
+        lambda _roots: pytest.fail("runner discovered files before rejecting --basetemp"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_tests_parallel.py", "--basetemp", str(tmp_path / "shared")],
+    )
+
+    assert runner_module.main() == 2
+    output = capsys.readouterr()
+    assert "--basetemp is owned by scripts/run_tests_parallel.py" in output.err
+
 
 
 def test_bare_value_flag_keeps_its_value(tmp_path: Path) -> None:
@@ -321,6 +374,58 @@ def test_file_retry_self_heals_and_prints_both_attempts(tmp_path: Path) -> None:
     assert "simulated first-attempt flake" in proc.stdout
     assert "first-attempt output" in proc.stdout
     assert "retry output" in proc.stdout
+
+
+def test_parallel_pytest_processes_get_private_basetemp(tmp_path: Path) -> None:
+    """Parallel pytest children must not share pytest's numbered temp root."""
+    repo_root = Path(__file__).resolve().parent.parent
+    runner = repo_root / "scripts" / "run_tests_parallel.py"
+    probe_dir = tmp_path / "probe"
+    handoff_dir = tmp_path / "handoff"
+    probe_dir.mkdir()
+    handoff_dir.mkdir()
+
+    for i in range(2):
+        (probe_dir / f"test_tmp_probe_{i}.py").write_text(
+            textwrap.dedent(
+                f"""
+                from pathlib import Path
+
+                def test_records_tmp_path(tmp_path):
+                    Path({str(handoff_dir / f"{i}.txt")!r}).write_text(str(tmp_path))
+                    assert tmp_path.exists()
+                """
+            ),
+            encoding="utf-8",
+        )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(runner),
+            "--paths",
+            str(probe_dir),
+            "-j",
+            "2",
+            "--file-timeout",
+            "30",
+            "-q",
+        ],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=60,
+    )
+
+    assert proc.returncode == 0, proc.stdout
+    recorded = [(handoff_dir / f"{i}.txt").read_text() for i in range(2)]
+    assert len(set(recorded)) == 2
+    for path in recorded:
+        assert "pytest-current" not in path
+        assert "pytest-of-" not in path
+        assert "hermes-pytest-" in path
+        assert not Path(path).exists()
 
 
 
