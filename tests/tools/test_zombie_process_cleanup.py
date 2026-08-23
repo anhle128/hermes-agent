@@ -5,6 +5,7 @@ Reproduction for issue #7131: zombie process accumulation on long-running
 gateway deployments.
 """
 
+import contextvars
 import os
 import signal
 import subprocess
@@ -370,7 +371,7 @@ class TestDelegationCleanup:
             reset_hermes_home_override,
             set_hermes_home_override,
         )
-        from hermes_cli.observability import relay_runtime
+        from agent import relay_runtime
         from tools.delegate_tool import _run_single_child
 
         parent = MagicMock()
@@ -415,7 +416,7 @@ class TestDelegationCleanup:
     def test_active_child_turn_owns_relay_scope_cleanup(self, monkeypatch):
         from unittest.mock import MagicMock
 
-        from hermes_cli.observability import relay_runtime
+        from agent import relay_runtime
         from tools.delegate_tool import _run_single_child
 
         parent = MagicMock()
@@ -472,7 +473,7 @@ class TestDelegationCleanup:
         parent._active_children.append(child)
         relay_host = MagicMock()
         monkeypatch.setattr(relay_runtime, "get_runtime", lambda **_kwargs: relay_host)
-        monkeypatch.setattr("tools.delegate_tool._get_child_timeout", lambda: 0.1)
+        monkeypatch.setattr("tools.delegate_tool._get_child_timeout", lambda: 2.0)
 
         def run_conversation(**kwargs):
             lease = relay_runtime.SESSION_COORDINATOR.acquire_conversation(
@@ -487,7 +488,7 @@ class TestDelegationCleanup:
             )
             child_started.set()
             try:
-                release_child.wait(timeout=5)
+                release_child.wait()
                 return {
                     "final_response": "late result",
                     "completed": True,
@@ -504,15 +505,33 @@ class TestDelegationCleanup:
                 child_finished.set()
 
         child.run_conversation.side_effect = run_conversation
-        try:
-            result = _run_single_child(
-                task_index=0,
-                goal="test timed-out turn cleanup",
-                child=child,
-                parent_agent=parent,
-            )
+        result_holder = {}
+        result_ready = threading.Event()
+        result_error = {}
 
-            assert child_started.is_set()
+        def run_child():
+            try:
+                result_holder["result"] = _run_single_child(
+                    task_index=0,
+                    goal="test timed-out turn cleanup",
+                    child=child,
+                    parent_agent=parent,
+                )
+            except BaseException as exc:
+                result_error["error"] = exc
+            finally:
+                result_ready.set()
+
+        run_context = contextvars.copy_context()
+        runner = threading.Thread(target=run_context.run, args=(run_child,))
+        try:
+            runner.start()
+
+            assert child_started.wait(timeout=2)
+            assert result_ready.wait(timeout=4)
+            if "error" in result_error:
+                raise result_error["error"]
+            result = result_holder["result"]
             assert result["status"] == "timeout"
             assert relay_runtime.SESSION_COORDINATOR.has_active_turn(
                 profile_key=str(profile_home),
@@ -528,5 +547,6 @@ class TestDelegationCleanup:
             )
         finally:
             release_child.set()
+            runner.join(timeout=5)
             reset_hermes_home_override(profile_token)
             relay_runtime._reset_for_tests()

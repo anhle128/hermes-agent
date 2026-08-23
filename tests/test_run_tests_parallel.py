@@ -271,7 +271,6 @@ def _run_runner(probe_dir: Path, *extra: str) -> subprocess.CompletedProcess:
 
 
 
-
 def test_bare_value_flag_keeps_its_value(tmp_path: Path) -> None:
     """``-k test_alpha`` reaches pytest as a selector, not as a path.
 
@@ -358,6 +357,7 @@ def test_file_retry_self_heals_and_prints_both_attempts(tmp_path: Path) -> None:
     assert "simulated first-attempt flake" in proc.stdout
     assert "first-attempt output" in proc.stdout
     assert "retry output" in proc.stdout
+
 
 
 

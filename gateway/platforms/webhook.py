@@ -750,6 +750,7 @@ class WebhookAdapter(BasePlatformAdapter):
         event_type = (
             request.headers.get("X-GitHub-Event", "")
             or request.headers.get("X-GitLab-Event", "")
+            or payload.get("eventType", "")
             or payload.get("event_type", "")
             or payload.get("type", "")
             or "unknown"
@@ -883,6 +884,21 @@ class WebhookAdapter(BasePlatformAdapter):
                 len(prompt),
                 delivery_id,
             )
+            if delivery["deliver"] == "all":
+                task = asyncio.create_task(
+                    self._deliver_all_home_channels(prompt)
+                )
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+                return web.json_response(
+                    {
+                        "status": "accepted",
+                        "route": route_name,
+                        "target": "all",
+                        "delivery_id": delivery_id,
+                    },
+                    status=202,
+                )
             try:
                 result = await self._direct_deliver(prompt, delivery)
             except Exception:
@@ -1314,6 +1330,50 @@ class WebhookAdapter(BasePlatformAdapter):
     # Response delivery
     # ------------------------------------------------------------------
 
+    async def _deliver_all_home_channels(self, content: str) -> None:
+        """Deliver content to every configured home channel."""
+        runner = self.gateway_runner
+        if runner is None:
+            logger.warning(
+                "[webhook] all-home delivery skipped: no gateway runner"
+            )
+            return
+
+        home_platforms = []
+        for platform, platform_config in runner.config.platforms.items():
+            home = platform_config.home_channel
+            if home is not None and home.chat_id:
+                home_platforms.append(platform)
+
+        if not home_platforms:
+            logger.warning(
+                "[webhook] all-home delivery skipped: "
+                "no configured home channels"
+            )
+            return
+
+        for platform in home_platforms:
+            try:
+                result = await self._deliver_cross_platform(
+                    platform.value,
+                    content,
+                    {"deliver_extra": {}},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[webhook] all-home delivery raised platform=%s: %s",
+                    platform.value,
+                    exc,
+                )
+                continue
+
+            if not result.success:
+                logger.warning(
+                    "[webhook] all-home delivery failed platform=%s error=%s",
+                    platform.value,
+                    result.error or "unknown delivery error",
+                )
+
     async def _direct_deliver(
         self, content: str, delivery: dict
     ) -> SendResult:
@@ -1455,6 +1515,7 @@ class WebhookAdapter(BasePlatformAdapter):
         # Use home channel if no specific chat_id in deliver_extra
         extra = delivery.get("deliver_extra", {})
         chat_id = extra.get("chat_id", "")
+        home = None
         if not chat_id:
             home = self.gateway_runner.config.get_home_channel(target_platform)
             if home:
@@ -1467,7 +1528,11 @@ class WebhookAdapter(BasePlatformAdapter):
 
         # Pass thread_id from deliver_extra so Telegram forum topics work
         metadata = None
-        thread_id = extra.get("message_thread_id") or extra.get("thread_id")
+        thread_id = (
+            extra.get("message_thread_id")
+            or extra.get("thread_id")
+            or (home.thread_id if home else None)
+        )
         if thread_id:
             metadata = {"thread_id": thread_id}
 

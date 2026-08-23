@@ -1775,9 +1775,12 @@ def _load_local_whisper_model(model_name: str, device: str = "auto", compute_typ
     if force_cpu:
         logger.info(
             "Apple Silicon/Rosetta detected — loading faster-whisper on CPU "
-            "(int8) to avoid native device autodetection crashes"
+            "to avoid native device autodetection crashes"
         )
-        return WhisperModel(model_name, device="cpu", compute_type="int8")
+        cpu_compute_type = (
+            compute_type if device == "cpu" and compute_type != "auto" else "int8"
+        )
+        return WhisperModel(model_name, device="cpu", compute_type=cpu_compute_type)
 
     try:
         return WhisperModel(model_name, device=device, compute_type=compute_type)

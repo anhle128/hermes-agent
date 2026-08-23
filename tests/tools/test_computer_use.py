@@ -1452,7 +1452,8 @@ class TestCaptureAppFilterNoMatch:
              "structuredContent": None},
         ]
 
-        backend.capture(mode="ax")
+        with patch.object(sys, "platform", "linux"):
+            backend.capture(mode="ax")
 
         assert backend._active_pid == 200
         assert backend._active_window_id == 2

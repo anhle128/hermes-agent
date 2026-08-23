@@ -21,7 +21,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from gateway.config import Platform, PlatformConfig
+from gateway.config import HomeChannel, Platform, PlatformConfig
 from gateway.platforms.base import MessageEvent, SendResult
 from gateway.platforms.webhook import WebhookAdapter, _INSECURE_NO_AUTH
 
@@ -55,6 +55,46 @@ def _wire_mock_target(adapter: WebhookAdapter, platform_name: str = "telegram"):
 
     adapter.gateway_runner = mock_runner
     return mock_target
+
+
+async def _drain_background_tasks(adapter: WebhookAdapter) -> None:
+    while adapter._background_tasks:
+        await asyncio.gather(*tuple(adapter._background_tasks))
+
+
+def _wire_mock_homes(
+    adapter: WebhookAdapter,
+    homes: dict[Platform, HomeChannel],
+    results: dict[Platform, SendResult] | None = None,
+) -> dict[Platform, AsyncMock]:
+    configured_results = results or {}
+    targets: dict[Platform, AsyncMock] = {}
+    runner = MagicMock()
+    runner.adapters = {}
+    runner.config.platforms = {}
+
+    for platform, home in homes.items():
+        target = AsyncMock()
+        target.send = AsyncMock(
+            return_value=configured_results.get(
+                platform,
+                SendResult(success=True),
+            )
+        )
+        targets[platform] = target
+        runner.adapters[platform] = target
+        runner.config.platforms[platform] = PlatformConfig(
+            enabled=True,
+            home_channel=home,
+        )
+
+    runner.config.get_home_channel.side_effect = lambda platform: (
+        runner.config.platforms[platform].home_channel
+        if platform in runner.config.platforms
+        else None
+    )
+    adapter.gateway_runner = runner
+    return targets
 
 
 # ===================================================================
@@ -118,6 +158,220 @@ class TestDeliverOnlyBypassesAgent:
         chat_id_arg, content_arg = call_args.args[0], call_args.args[1]
         assert chat_id_arg == "12345"
         assert content_arg == "alice matched with bob!"
+
+    @pytest.mark.asyncio
+    async def test_archon_approval_fans_out_to_home_channels_without_agent(
+        self, monkeypatch
+    ):
+        routes = {
+            "archon-approval": {
+                "secret": _INSECURE_NO_AUTH,
+                "events": ["workflow.approval.requested"],
+                "deliver": "all",
+                "deliver_only": True,
+                "prompt": (
+                    "⏸ Approval required\n\n"
+                    "Project: {projectRef.codebaseRef}\n"
+                    "Workflow: {workflowRunRef.workflowName}\n"
+                    "Run: {workflowRunRef.runId}\n"
+                    "Gate: {payload.approval.nodeId} "
+                    "({payload.approval.gateType})\n\n"
+                    "User request:\n{payload.approval.userPrompt}\n\n"
+                    "Review:\n{payload.approval.reviewUrl}"
+                ),
+            }
+        }
+        adapter = _make_adapter(routes)
+        targets = _wire_mock_homes(
+            adapter,
+            {
+                Platform.TELEGRAM: HomeChannel(
+                    platform=Platform.TELEGRAM,
+                    chat_id="telegram-home",
+                    name="Telegram Ops",
+                    thread_id="topic-7",
+                ),
+                Platform.SLACK: HomeChannel(
+                    platform=Platform.SLACK,
+                    chat_id="slack-home",
+                    name="Slack Ops",
+                ),
+            },
+        )
+        handle_message = AsyncMock()
+        monkeypatch.setattr(adapter, "handle_message", handle_message)
+        payload = {
+            "eventType": "workflow.approval.requested",
+            "projectRef": {"codebaseRef": "archon"},
+            "workflowRunRef": {
+                "workflowName": "archon-speckit-feature",
+                "runId": "run-1",
+            },
+            "payload": {
+                "approval": {
+                    "nodeId": "clarify-gate",
+                    "gateType": "plannotator_gate",
+                    "userPrompt": "Add the requested workflow capability.",
+                    "reviewUrl": "https://archon-host.example.ts.net:19432",
+                }
+            },
+        }
+        expected = (
+            "⏸ Approval required\n\n"
+            "Project: archon\n"
+            "Workflow: archon-speckit-feature\n"
+            "Run: run-1\n"
+            "Gate: clarify-gate (plannotator_gate)\n\n"
+            "User request:\nAdd the requested workflow capability.\n\n"
+            "Review:\nhttps://archon-host.example.ts.net:19432"
+        )
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            response = await cli.post(
+                "/webhooks/archon-approval",
+                json=payload,
+                headers={"X-Request-ID": "archon-event-2"},
+            )
+            assert response.status == 202
+            assert await response.json() == {
+                "status": "accepted",
+                "route": "archon-approval",
+                "target": "all",
+                "delivery_id": "archon-event-2",
+            }
+            await _drain_background_tasks(adapter)
+
+        handle_message.assert_not_awaited()
+        targets[Platform.TELEGRAM].send.assert_awaited_once_with(
+            "telegram-home",
+            expected,
+            metadata={"thread_id": "topic-7"},
+        )
+        targets[Platform.SLACK].send.assert_awaited_once_with(
+            "slack-home",
+            expected,
+            metadata=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_all_returns_202_before_home_delivery_finishes(self):
+        routes = {
+            "r": {
+                "secret": _INSECURE_NO_AUTH,
+                "deliver": "all",
+                "deliver_only": True,
+                "prompt": "approval pending",
+            }
+        }
+        adapter = _make_adapter(routes)
+        targets = _wire_mock_homes(
+            adapter,
+            {
+                Platform.TELEGRAM: HomeChannel(
+                    platform=Platform.TELEGRAM,
+                    chat_id="telegram-home",
+                    name="Telegram Ops",
+                )
+            },
+        )
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _blocked_send(chat_id, content, metadata=None):
+            started.set()
+            await release.wait()
+            return SendResult(success=True)
+
+        targets[Platform.TELEGRAM].send.side_effect = _blocked_send
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            response = await cli.post(
+                "/webhooks/r",
+                json={},
+                headers={"X-Request-ID": "delivery-blocked"},
+            )
+            assert response.status == 202
+            await asyncio.wait_for(started.wait(), timeout=1)
+            assert adapter._background_tasks
+            release.set()
+            await _drain_background_tasks(adapter)
+
+    @pytest.mark.asyncio
+    async def test_all_continues_after_one_home_rejects_delivery(self, caplog):
+        routes = {
+            "r": {
+                "secret": _INSECURE_NO_AUTH,
+                "deliver": "all",
+                "deliver_only": True,
+                "prompt": "approval pending",
+            }
+        }
+        adapter = _make_adapter(routes)
+        targets = _wire_mock_homes(
+            adapter,
+            {
+                Platform.TELEGRAM: HomeChannel(
+                    platform=Platform.TELEGRAM,
+                    chat_id="telegram-home",
+                    name="Telegram Ops",
+                ),
+                Platform.SLACK: HomeChannel(
+                    platform=Platform.SLACK,
+                    chat_id="slack-home",
+                    name="Slack Ops",
+                ),
+            },
+            {
+                Platform.TELEGRAM: SendResult(
+                    success=False,
+                    error="telegram unavailable",
+                )
+            },
+        )
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            response = await cli.post(
+                "/webhooks/r",
+                json={},
+                headers={"X-Request-ID": "delivery-partial"},
+            )
+            assert response.status == 202
+            await _drain_background_tasks(adapter)
+
+        targets[Platform.TELEGRAM].send.assert_awaited_once()
+        targets[Platform.SLACK].send.assert_awaited_once()
+        assert "telegram unavailable" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_all_accepts_when_no_home_channel_exists(self, caplog):
+        routes = {
+            "r": {
+                "secret": _INSECURE_NO_AUTH,
+                "deliver": "all",
+                "deliver_only": True,
+                "prompt": "approval pending",
+            }
+        }
+        adapter = _make_adapter(routes)
+        runner = MagicMock()
+        runner.adapters = {}
+        runner.config.platforms = {}
+        adapter.gateway_runner = runner
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            response = await cli.post(
+                "/webhooks/r",
+                json={},
+                headers={"X-Request-ID": "delivery-no-home"},
+            )
+            assert response.status == 202
+            await _drain_background_tasks(adapter)
+
+        assert "no configured home channels" in caplog.text
 
 
 # ===================================================================
